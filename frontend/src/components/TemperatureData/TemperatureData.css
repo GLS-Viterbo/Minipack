@@ -1,0 +1,111 @@
+.temperature-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.temperature-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.temperature-item {
+  padding: 1.25rem;
+  background: linear-gradient(135deg, var(--gray-50) 0%, var(--white) 100%);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--gray-200);
+}
+
+.temperature-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.temperature-icon {
+  color: var(--secondary);
+}
+
+.temperature-label {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.temperature-display {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.temperature-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  line-height: 1;
+}
+
+.temperature-value.temp-cold {
+  color: var(--secondary);
+}
+
+.temperature-value.temp-warm {
+  color: #f59e0b;
+}
+
+.temperature-value.temp-hot {
+  color: #f97316;
+}
+
+.temperature-value.temp-very-hot {
+  color: var(--danger);
+}
+
+.temperature-unit {
+  font-size: 1.25rem;
+  color: var(--gray-600);
+  font-weight: 600;
+}
+
+.temperature-bar {
+  height: 8px;
+  background-color: var(--gray-200);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.temperature-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.5s ease, background-color 0.3s ease;
+}
+
+.temperature-fill.temp-cold {
+  background: linear-gradient(90deg, var(--secondary) 0%, #60a5fa 100%);
+}
+
+.temperature-fill.temp-warm {
+  background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%);
+}
+
+.temperature-fill.temp-hot {
+  background: linear-gradient(90deg, #fb923c 0%, #f97316 100%);
+}
+
+.temperature-fill.temp-very-hot {
+  background: linear-gradient(90deg, #f87171 0%, var(--danger) 100%);
+}
+
+@media (max-width: 768px) {
+  .temperature-value {
+    font-size: 2rem;
+  }
+  
+  .temperature-unit {
+    font-size: 1rem;
+  }
+}

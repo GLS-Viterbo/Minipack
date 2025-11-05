@@ -1,0 +1,64 @@
+.position-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.position-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.position-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background-color: var(--gray-50);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.position-item:hover {
+  background-color: var(--gray-100);
+  transform: translateY(-2px);
+}
+
+.position-icon {
+  color: var(--secondary);
+  flex-shrink: 0;
+}
+
+.position-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.position-label {
+  font-size: 0.75rem;
+  color: var(--gray-600);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.position-value-wrapper {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+}
+
+.position-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary);
+  font-family: 'Courier New', monospace;
+}
+
+.position-unit {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  font-weight: 600;
+}

@@ -1,0 +1,168 @@
+.status-card {
+  grid-column: 1 / -1;
+}
+
+.card-header {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--gray-100);
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+
+.status-main {
+  margin-bottom: 1.5rem;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  border-radius: var(--radius-lg);
+  transition: all 0.3s ease;
+}
+
+.status-indicator.status-running {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border-left: 4px solid var(--success);
+}
+
+.status-indicator.status-emergency {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+  border-left: 4px solid var(--danger);
+}
+
+.status-indicator.status-ready {
+  background: linear-gradient(135deg, rgba(74, 144, 226, 0.1) 0%, rgba(74, 144, 226, 0.05) 100%);
+  border-left: 4px solid var(--secondary);
+}
+
+.status-indicator.status-stopped {
+  background: linear-gradient(135deg, rgba(107, 114, 128, 0.1) 0%, rgba(107, 114, 128, 0.05) 100%);
+  border-left: 4px solid var(--gray-400);
+}
+
+.status-icon {
+  flex-shrink: 0;
+}
+
+.status-icon-running {
+  color: var(--success);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.status-icon-emergency {
+  color: var(--danger);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.status-icon-ready {
+  color: var(--secondary);
+}
+
+.status-icon-stopped {
+  color: var(--gray-400);
+}
+
+.status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.status-label {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+
+.alarms-section {
+  background-color: var(--gray-50);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.alarms-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  color: var(--danger);
+}
+
+.alarms-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.alarms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.alarm-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background-color: var(--white);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--danger);
+}
+
+.alarm-code {
+  flex-shrink: 0;
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
+.alarm-message {
+  font-size: 0.875rem;
+  color: var(--gray-700);
+}
+
+.no-alarms {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  background-color: var(--gray-50);
+  border-radius: var(--radius-md);
+  color: var(--gray-600);
+  font-size: 0.875rem;
+}
+
+.no-alarms-icon {
+  color: var(--success);
+}
+
+@media (max-width: 640px) {
+  .status-value {
+    font-size: 1.125rem;
+  }
+  
+  .alarm-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
