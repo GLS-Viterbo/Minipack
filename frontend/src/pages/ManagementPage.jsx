@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Users, BookOpen } from 'lucide-react';
-import { RecipesClientsApiService } from './recipesApi';
-import { ClientsManagement } from './ClientsManagement';
-import { RecipesManagement } from './RecipesManagement';
+import { RecipesClientsApiService } from '../../recipesApi';
+import { ClientsManagement } from '../components/ClientsManagement/ClientsManagement';
+import { RecipesManagement } from '../components/RecipesManagement/RecipesManagement';
 import './ManagementPage.css';
 
 export function ManagementPage() {

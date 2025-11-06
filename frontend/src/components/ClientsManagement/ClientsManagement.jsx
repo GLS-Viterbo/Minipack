@@ -22,12 +22,6 @@ export function ClientsManagement({ clients, onCreateClient, onRefresh, loading 
     if (!formData.nome.trim()) {
       newErrors.nome = 'Il nome è obbligatorio';
     }
-    if (formData.partita_iva && !/^\d{11}$/.test(formData.partita_iva.replace(/\s/g, ''))) {
-      newErrors.partita_iva = 'La Partita IVA deve contenere 11 cifre';
-    }
-    if (formData.codice_fiscale && formData.codice_fiscale.length !== 16) {
-      newErrors.codice_fiscale = 'Il Codice Fiscale deve contenere 16 caratteri';
-    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };

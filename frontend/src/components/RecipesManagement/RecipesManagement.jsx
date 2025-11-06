@@ -52,24 +52,6 @@ export function RecipesManagement({ recipes, onCreateRecipe, onLoadRecipe, onRef
     }
   };
 
-  const handleLoadRecipe = async (recipeName, recipeId) => {
-    if (window.confirm(`Caricare la ricetta "${recipeName}" sulla macchina?\n\nATTENZIONE: La macchina deve essere in stop automatico.`)) {
-      setLoadingRecipe(recipeId);
-      try {
-        const result = await onLoadRecipe(recipeName);
-        if (result.success) {
-          alert(`✓ Ricetta caricata con successo!\n\n${result.message}`);
-        } else {
-          alert(`✗ Caricamento fallito\n\n${result.message}`);
-        }
-      } catch (error) {
-        alert(`✗ Errore durante il caricamento\n\n${error.message}`);
-      } finally {
-        setLoadingRecipe(null);
-      }
-    }
-  };
-
   return (
     <div className="recipes-management">
       <div className="management-header">
@@ -127,26 +109,7 @@ export function RecipesManagement({ recipes, onCreateRecipe, onLoadRecipe, onRef
                 {recipe.descrizione && (
                   <p className="recipe-description">{recipe.descrizione}</p>
                 )}
-                
-                <div className="recipe-actions">
-                  <button 
-                    className="btn-load-recipe"
-                    onClick={() => handleLoadRecipe(recipe.nome, recipe.id)}
-                    disabled={loadingRecipe === recipe.id}
-                  >
-                    {loadingRecipe === recipe.id ? (
-                      <>
-                        <div className="btn-spinner"></div>
-                        Caricamento...
-                      </>
-                    ) : (
-                      <>
-                        <PlayCircle size={18} />
-                        Carica su Macchina
-                      </>
-                    )}
-                  </button>
-                </div>
+              
               </div>
             ))
           )}
