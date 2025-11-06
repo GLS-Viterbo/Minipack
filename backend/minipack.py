@@ -101,7 +101,7 @@ class MinipackTorreOPCUA:
         self.nodes['input_1_16'] = ua.NodeId(50231, 0)
         self.nodes['input_17_32'] = ua.NodeId(50232, 0)
         self.nodes['output_1_16'] = ua.NodeId(50233, 0)
-        self.nodes['output_17_32'] = ua.NodeId(50234, 0)
+        self.nodes['output_17_32'] = ua.NodeId(50243, 0)
         
         # Nodi Processo
         self.nodes['posizione_triangolo'] = ua.NodeId(50245, 0)
