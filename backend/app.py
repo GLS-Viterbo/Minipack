@@ -239,15 +239,7 @@ async def get_machine_data() -> MachineData:
             status_text = "SCONOSCIUTO"
         
         # Recupera allarmi
-        raw_alarms = await client.get_allarmi()
-        alarms = []
-        for i in range(1, 10):
-            alarm_data = raw_alarms.get(f'alarm_{i}', {})
-            if alarm_data and alarm_data.get('code', 0) != 0:
-                alarms.append(AlarmInfo(
-                    code=alarm_data['code'],
-                    message=alarm_data.get('message', f'Allarme {alarm_data["code"]}')
-                ))
+        alarms = await client.get_allarmi_attivi()
         
         # Componi risposta
         data = MachineData(
@@ -269,8 +261,8 @@ async def get_machine_data() -> MachineData:
             total_pieces=await client.get_contapezzi_vita(),
             partial_pieces=await client.get_contapezzi_parziale(),
             batch_counter=await client.get_contatore_lotto(),
-            lateral_bar_temp=await client.get_temp_barra_laterale(),
-            frontal_bar_temp=await client.get_temp_barra_frontale(),
+            lateral_bar_temp=await client.get_temperatura_barra_laterale(),
+            frontal_bar_temp=await client.get_temperatura_barra_frontale(),
             triangle_position=await client.get_posizione_triangolo(),
             center_sealing_position=await client.get_posizione_center_sealing(),
         )
@@ -280,6 +272,7 @@ async def get_machine_data() -> MachineData:
         
     except Exception as e:
         await client.disconnect()
+        print(e)
         raise HTTPException(status_code=500, detail=f"Errore connessione OPC UA: {str(e)}")
 
 

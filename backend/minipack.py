@@ -273,7 +273,7 @@ class MinipackTorreOPCUA:
     
     # === CARICAMENTO RICETTE ===
     
-    async def carica_ricetta(self, nome_ricetta: str, timeout: float = 30.0) -> bool:
+    async def carica_ricetta(self, nome_ricetta: str, timeout: float = 120.0) -> bool:
         """
         Carica una ricetta seguendo la procedura OPC UA
         

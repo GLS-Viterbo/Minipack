@@ -104,11 +104,11 @@ class MonitoringService:
                 # Recupera tutti i dati dalla macchina
                 machine_data = await self._get_machine_data()
                 
-                # Aggiorna il database con monitoraggio automatico
-                await self.db_repo.monitor_machine_state(
-                    machine_data,
-                    lavorazione_id=self.current_lavorazione_id
-                )
+                # # Aggiorna il database con monitoraggio automatico
+                # await self.db_repo.monitor_machine_state(
+                #     machine_data,
+                #     lavorazione_id=self.current_lavorazione_id
+                # )
                 
                 # Disconnetti
                 await self.opc_client.disconnect()
@@ -268,72 +268,3 @@ class MonitoringService:
     async def get_alarm_statistics(self, days: int = 7) -> list:
         """Recupera statistiche allarmi"""
         return await self.db_repo.get_statistiche_allarmi(giorni=days)
-
-
-# ============================================================================
-# ESEMPIO DI UTILIZZO
-# ============================================================================
-
-async def main_example():
-    """Esempio di utilizzo del servizio di monitoraggio"""
-    
-    # Configurazione
-    OPC_SERVER = "opc.tcp://10.58.156.65:4840"
-    OPC_USERNAME = "admin"
-    OPC_PASSWORD = "Minipack1"
-    
-    # Crea il servizio
-    service = MonitoringService(
-        opc_server=OPC_SERVER,
-        opc_username=OPC_USERNAME,
-        opc_password=OPC_PASSWORD,
-        polling_interval=5  # Poll ogni 5 secondi
-    )
-    
-    try:
-        # Avvia il monitoraggio
-        await service.start()
-        
-        # Simula operazioni...
-        
-        # 1. Avvia una lavorazione per la commessa #1
-        print("\n--- AVVIO LAVORAZIONE ---")
-        await service.start_lavorazione(commessa_id=1)
-        
-        # 2. Lascia monitorare per un po'
-        print("\n--- MONITORAGGIO IN CORSO ---")
-        await asyncio.sleep(30)
-        
-        # 3. Simula aggiornamento produzione
-        print("\n--- AGGIORNAMENTO PRODUZIONE ---")
-        await service.update_production_count(incremento=10)
-        
-        # 4. Mostra statistiche
-        print("\n--- STATISTICHE ---")
-        status = await service.get_current_status()
-        print(f"Stato servizio: {status}")
-        
-        # 5. Mostra eventi recenti
-        print("\n--- EVENTI RECENTI ---")
-        events = await service.get_recent_events(limit=10)
-        for event in events:
-            print(f"  {event.timestamp} - {event.tipo_evento} - {event.stato_macchina}")
-        
-        # 6. Termina la lavorazione
-        print("\n--- FINE LAVORAZIONE ---")
-        await service.stop_lavorazione()
-        
-        # Continua a monitorare
-        await asyncio.sleep(30)
-        
-    except KeyboardInterrupt:
-        print("\n\n⛔ Interruzione utente")
-    
-    finally:
-        # Ferma il servizio
-        await service.stop()
-
-
-if __name__ == "__main__":
-    # Per testare il servizio
-    asyncio.run(main_example())

@@ -191,7 +191,7 @@ class CommesseService:
             await client.connect()
             
             # Carica ricetta (procedura OPC UA completa)
-            success = await client.carica_ricetta(ricetta.nome, timeout=30.0)
+            success = await client.carica_ricetta(ricetta.nome, timeout=120.0)
             
             if not success:
                 await client.disconnect()
