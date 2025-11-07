@@ -19,13 +19,13 @@ export function ManagementPage() {
   const loadData = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const [clientsData, recipesData] = await Promise.all([
         RecipesClientsApiService.getClients(),
         RecipesClientsApiService.getRecipes()
       ]);
-      
+
       setClients(clientsData);
       setRecipes(recipesData);
     } catch (err) {
@@ -42,6 +42,30 @@ export function ManagementPage() {
       await loadData();
     } catch (error) {
       throw new Error('Impossibile creare il cliente');
+    }
+  };
+
+  const handleDeleteClient = async (clientId, clientName) => {
+    if (window.confirm(`Sei sicuro di voler eliminare il cliente "${clientName}"?\n\nQuesta azione è irreversibile.`)) {
+      try {
+        await RecipesClientsApiService.deleteClient(clientId);
+        await loadData();
+      } catch (error) {
+        alert('Errore durante l\'eliminazione del cliente');
+        throw new Error('Impossibile eliminare il cliente');
+      }
+    }
+  };
+
+  const handleDeleteRecipe = async (recipeId, recipeName) => {
+    if (window.confirm(`Sei sicuro di voler eliminare la ricetta "${recipeName}"?\n\nQuesta azione è irreversibile.`)) {
+      try {
+        await RecipesClientsApiService.deleteRecipe(recipeId);
+        await loadData();
+      } catch (error) {
+        alert('Errore durante l\'eliminazione della ricetta');
+        throw new Error('Impossibile eliminare la ricetta');
+      }
     }
   };
 
@@ -107,6 +131,7 @@ export function ManagementPage() {
             <ClientsManagement
               clients={clients}
               onCreateClient={handleCreateClient}
+              onDeleteClient={handleDeleteClient}
               onRefresh={loadData}
               loading={loading}
             />
@@ -114,6 +139,7 @@ export function ManagementPage() {
             <RecipesManagement
               recipes={recipes}
               onCreateRecipe={handleCreateRecipe}
+              onDeleteRecipe={handleDeleteRecipe}
               onLoadRecipe={handleLoadRecipe}
               onRefresh={loadData}
               loading={loading}

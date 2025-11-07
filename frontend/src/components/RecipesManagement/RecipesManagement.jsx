@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { BookOpen, Plus, Search, PlayCircle, FileText } from 'lucide-react';
+import { BookOpen, Plus, Search, PlayCircle, FileText, Trash2 } from 'lucide-react';
 import './RecipesManagement.css';
 
-export function RecipesManagement({ recipes, onCreateRecipe, onLoadRecipe, onRefresh, loading }) {
+export function RecipesManagement({ recipes, onCreateRecipe, onDeleteRecipe, onLoadRecipe, onRefresh, loading }) {
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
@@ -59,7 +59,7 @@ export function RecipesManagement({ recipes, onCreateRecipe, onLoadRecipe, onRef
           <BookOpen size={28} className="header-icon" />
           <h2 className="management-title">Gestione Ricette</h2>
         </div>
-        <button 
+        <button
           className="btn btn-primary"
           onClick={() => setShowModal(true)}
         >
@@ -103,13 +103,23 @@ export function RecipesManagement({ recipes, onCreateRecipe, onLoadRecipe, onRef
                   <FileText size={24} className="recipe-icon" />
                   <span className="recipe-id">#{recipe.id}</span>
                 </div>
-                
+
                 <h3 className="recipe-name">{recipe.nome}</h3>
-                
+
                 {recipe.descrizione && (
                   <p className="recipe-description">{recipe.descrizione}</p>
                 )}
-              
+
+                <div className="recipe-actions">
+                  <button 
+                    className="btn-delete-client"
+                    onClick={() => onDeleteClient(client.id, client.nome)}
+                    title="Elimina cliente"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+
               </div>
             ))
           )}
@@ -121,14 +131,14 @@ export function RecipesManagement({ recipes, onCreateRecipe, onLoadRecipe, onRef
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Nuova Ricetta</h3>
-              <button 
+              <button
                 className="modal-close"
                 onClick={() => setShowModal(false)}
               >
                 ×
               </button>
             </div>
-            
+
             <form onSubmit={handleSubmit} className="modal-form">
               <div className="form-group">
                 <label htmlFor="nome" className="form-label">
@@ -168,8 +178,8 @@ export function RecipesManagement({ recipes, onCreateRecipe, onLoadRecipe, onRef
               )}
 
               <div className="modal-actions">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="btn btn-secondary"
                   onClick={() => setShowModal(false)}
                 >

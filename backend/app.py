@@ -445,6 +445,36 @@ async def get_cliente(cliente_id: int):
         updated_at=cliente.updated_at
     )
 
+@app.delete("/clienti/{cliente_id}")
+async def delete_cliente(cliente_id: int):
+    """Elimina un cliente"""
+    db = DatabaseRepository()
+    await db.connect()
+    
+    # Verifica che il cliente esista
+    cliente = await db.get_cliente(cliente_id)
+    if not cliente:
+        await db.disconnect()
+        raise HTTPException(status_code=404, detail="Cliente non trovato")
+    
+    # Verifica che non ci siano commesse associate al cliente
+    # Questo previene l'eliminazione di clienti con dati storici
+    try:
+        await db.delete_cliente(cliente_id)
+        await db.disconnect()
+        
+        return {
+            "success": True,
+            "message": f"Cliente '{cliente.nome}' eliminato con successo",
+            "id": cliente_id
+        }
+    except Exception as e:
+        await db.disconnect()
+        # Errore probabilmente dovuto a foreign key constraint
+        raise HTTPException(
+            status_code=400, 
+            detail="Impossibile eliminare il cliente: potrebbe avere commesse associate"
+        )
 
 # ============================================================================
 # ENDPOINT RICETTE
@@ -487,6 +517,37 @@ async def create_ricetta(ricetta: RicettaCreate):
         descrizione=created.descrizione
     )
 
+
+@app.delete("/ricette/{ricetta_id}")
+async def delete_ricetta(ricetta_id: int):
+    """Elimina una ricetta"""
+    db = DatabaseRepository()
+    await db.connect()
+    
+    # Verifica che la ricetta esista
+    ricetta = await db.get_ricetta(ricetta_id)
+    if not ricetta:
+        await db.disconnect()
+        raise HTTPException(status_code=404, detail="Ricetta non trovata")
+    
+    # Verifica che non ci siano commesse associate alla ricetta
+    # Questo previene l'eliminazione di ricette con dati storici
+    try:
+        await db.delete_ricetta(ricetta_id)
+        await db.disconnect()
+        
+        return {
+            "success": True,
+            "message": f"Ricetta '{ricetta.nome}' eliminata con successo",
+            "id": ricetta_id
+        }
+    except Exception as e:
+        await db.disconnect()
+        # Errore probabilmente dovuto a foreign key constraint
+        raise HTTPException(
+            status_code=400, 
+            detail="Impossibile eliminare la ricetta: potrebbe essere utilizzata in commesse"
+        )
 
 # ============================================================================
 # ENDPOINT COMMESSE

@@ -130,6 +130,35 @@
   font-style: italic;
 }
 
+.btn-delete-recipe,
+.btn-delete-client {
+  padding: 0.5rem;
+  background-color: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-delete-recipe:hover,
+.btn-delete-client:hover {
+  background-color: var(--danger);
+  color: var(--white);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.recipe-actions,
+.client-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .recipes-grid {

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Users, Plus, Search, Building2 } from 'lucide-react';
+import { Users, Plus, Search, Building2, Trash2 } from 'lucide-react';
 import './ClientsManagement.css';
 
-export function ClientsManagement({ clients, onCreateClient, onRefresh, loading }) {
+export function ClientsManagement({ clients, onCreateClient, onDeleteClient, onRefresh, loading }) {
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
@@ -21,6 +21,12 @@ export function ClientsManagement({ clients, onCreateClient, onRefresh, loading 
     const newErrors = {};
     if (!formData.nome.trim()) {
       newErrors.nome = 'Il nome è obbligatorio';
+    }
+    if (formData.partita_iva && !/^\d{11}$/.test(formData.partita_iva.replace(/\s/g, ''))) {
+      newErrors.partita_iva = 'La Partita IVA deve contenere 11 cifre';
+    }
+    if (formData.codice_fiscale && formData.codice_fiscale.length !== 16) {
+      newErrors.codice_fiscale = 'Il Codice Fiscale deve contenere 16 caratteri';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -100,7 +106,9 @@ export function ClientsManagement({ clients, onCreateClient, onRefresh, loading 
                   <Building2 size={24} className="client-icon" />
                   <span className="client-id">#{client.id}</span>
                 </div>
+                
                 <h3 className="client-name">{client.nome}</h3>
+                
                 <div className="client-details">
                   {client.partita_iva && (
                     <div className="client-detail-item">
@@ -120,6 +128,16 @@ export function ClientsManagement({ clients, onCreateClient, onRefresh, loading 
                       {new Date(client.created_at).toLocaleDateString('it-IT')}
                     </span>
                   </div>
+                </div>
+
+                <div className="client-actions">
+                  <button 
+                    className="btn-delete-client"
+                    onClick={() => onDeleteClient(client.id, client.nome)}
+                    title="Elimina cliente"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
               </div>
             ))
@@ -141,6 +159,10 @@ export function ClientsManagement({ clients, onCreateClient, onRefresh, loading 
             </div>
             
             <form onSubmit={handleSubmit} className="modal-form">
+              {errors.submit && (
+                <div className="error-banner">{errors.submit}</div>
+              )}
+              
               <div className="form-group">
                 <label htmlFor="nome" className="form-label">
                   Nome / Ragione Sociale *
@@ -152,9 +174,11 @@ export function ClientsManagement({ clients, onCreateClient, onRefresh, loading 
                   className={`form-input ${errors.nome ? 'input-error' : ''}`}
                   value={formData.nome}
                   onChange={handleInputChange}
-                  placeholder="Es. ACME Corporation S.r.l."
+                  placeholder="Inserisci nome o ragione sociale"
                 />
-                {errors.nome && <span className="error-message">{errors.nome}</span>}
+                {errors.nome && (
+                  <span className="error-message">{errors.nome}</span>
+                )}
               </div>
 
               <div className="form-group">
@@ -168,10 +192,12 @@ export function ClientsManagement({ clients, onCreateClient, onRefresh, loading 
                   className={`form-input ${errors.partita_iva ? 'input-error' : ''}`}
                   value={formData.partita_iva}
                   onChange={handleInputChange}
-                  placeholder="12345678901"
+                  placeholder="IT12345678901"
                   maxLength="11"
                 />
-                {errors.partita_iva && <span className="error-message">{errors.partita_iva}</span>}
+                {errors.partita_iva && (
+                  <span className="error-message">{errors.partita_iva}</span>
+                )}
               </div>
 
               <div className="form-group">
@@ -187,24 +213,25 @@ export function ClientsManagement({ clients, onCreateClient, onRefresh, loading 
                   onChange={handleInputChange}
                   placeholder="RSSMRA80A01H501U"
                   maxLength="16"
-                  style={{ textTransform: 'uppercase' }}
                 />
-                {errors.codice_fiscale && <span className="error-message">{errors.codice_fiscale}</span>}
+                {errors.codice_fiscale && (
+                  <span className="error-message">{errors.codice_fiscale}</span>
+                )}
               </div>
 
-              {errors.submit && (
-                <div className="error-banner">{errors.submit}</div>
-              )}
-
               <div className="modal-actions">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="btn btn-secondary"
                   onClick={() => setShowModal(false)}
                 >
                   Annulla
                 </button>
-                <button type="submit" className="btn btn-primary">
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                >
+                  <Plus size={18} />
                   Crea Cliente
                 </button>
               </div>

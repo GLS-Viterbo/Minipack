@@ -108,4 +108,43 @@ export class RecipesClientsApiService {
       throw error;
     }
   }
+  /**
+ * Elimina un cliente
+ */
+static async deleteClient(clientId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/clienti/${clientId}`, {
+      method: 'DELETE',
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error deleting client:', error);
+    throw error;
+  }
+}
+
+/**
+ * Elimina una ricetta
+ */
+static async deleteRecipe(recipeId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/ricette/${recipeId}`, {
+      method: 'DELETE',
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error deleting recipe:', error);
+    throw error;
+  }
+}
 }
