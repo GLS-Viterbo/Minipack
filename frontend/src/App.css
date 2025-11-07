@@ -104,3 +104,29 @@
     padding: 1.5rem;
   }
 }
+
+/* Pagina Commesse */
+.commesse-page {
+  padding: 20px 0;
+}
+
+.commesse-page h1 {
+  font-size: 32px;
+  font-weight: 600;
+  color: #1e3a5f;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .commesse-page {
+    padding: 16px 0;
+  }
+  
+  .commesse-page h1 {
+    font-size: 24px;
+  }
+}

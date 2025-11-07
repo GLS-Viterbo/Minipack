@@ -8,15 +8,15 @@ import { ApiService } from '../services/api';
 export function useMachineData(refreshInterval = 5000) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(false);
   const [isPolling, setIsPolling] = useState(true);
 
   const fetchData = useCallback(async () => {
     try {
-      setError(null);
       const machineData = await ApiService.getMachineData();
       setData(machineData);
       setLoading(false);
+      setError(null);
     } catch (err) {
       setError(err.message);
       setLoading(false);

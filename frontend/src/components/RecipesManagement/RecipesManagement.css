@@ -159,6 +159,10 @@
   align-items: center;
 }
 
+.add-btn {
+  max-width: 30%;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .recipes-grid {

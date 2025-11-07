@@ -60,7 +60,7 @@ export function RecipesManagement({ recipes, onCreateRecipe, onDeleteRecipe, onL
           <h2 className="management-title">Gestione Ricette</h2>
         </div>
         <button
-          className="btn btn-primary"
+          className="btn btn-primary add-btn"
           onClick={() => setShowModal(true)}
         >
           <Plus size={18} />

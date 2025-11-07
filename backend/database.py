@@ -5,10 +5,10 @@ Gestisce operazioni CRUD e monitoraggio periodico dello stato macchina
 
 import aiosqlite
 import json
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict, Optional, Any
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 
 @dataclass
@@ -18,8 +18,8 @@ class Cliente:
     nome: str
     partita_iva: Optional[str] = None
     codice_fiscale: Optional[str] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 @dataclass
@@ -40,17 +40,31 @@ class Commessa:
     data_ordine: str
     quantita_prodotta: int = 0
     data_consegna_prevista: Optional[str] = None
-    data_inizio_produzione: Optional[datetime] = None
-    data_fine_produzione: Optional[datetime] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    data_inizio_produzione: Optional[str] = None
+    data_fine_produzione: Optional[str] = None
+    stato: str = 'in_attesa'
+    priorita: str = 'normale'
+    note: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@dataclass
+class EventoCommessa:
+    """Modello Evento Commessa"""
+    id: Optional[int]
+    commessa_id: int
+    timestamp: str
+    tipo_evento: str
+    dettagli: Optional[str] = None
+    utente: Optional[str] = None
 
 
 @dataclass
 class EventoMacchina:
     """Modello Evento Macchina"""
     id: Optional[int]
-    timestamp: datetime
+    timestamp: str
     lavorazione_id: Optional[int]
     tipo_evento: str
     stato_macchina: Optional[str]
@@ -61,8 +75,8 @@ class EventoMacchina:
 class Allarme:
     """Modello Allarme"""
     id: Optional[int]
-    timestamp_inizio: datetime
-    timestamp_fine: Optional[datetime]
+    timestamp_inizio: str
+    timestamp_fine: Optional[str]
     durata_secondi: Optional[int]
     lavorazione_id: Optional[int]
     codice_allarme: int
@@ -243,69 +257,184 @@ class DatabaseRepository:
                     return Commessa(**dict(row))
         return None
 
-    async def get_commesse(self, attive_only: bool = False) -> List[Commessa]:
+    async def get_commesse(self, filtro_stato: Optional[str] = None) -> List[Commessa]:
         """
-        Recupera le commesse
+        Recupera tutte le commesse, opzionalmente filtrate per stato
         
         Args:
-            attive_only: Se True, recupera solo commesse non completate
+            filtro_stato: Se specificato, filtra per questo stato
         """
-        query = "SELECT * FROM commesse"
-        if attive_only:
-            query += " WHERE data_fine_produzione IS NULL"
-        query += " ORDER BY data_ordine DESC"
-        
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(query) as cursor:
+            
+            if filtro_stato:
+                query = "SELECT * FROM commesse WHERE stato = ? ORDER BY priorita DESC, data_ordine DESC"
+                params = (filtro_stato,)
+            else:
+                query = "SELECT * FROM commesse ORDER BY data_ordine DESC"
+                params = ()
+            
+            async with db.execute(query, params) as cursor:
                 rows = await cursor.fetchall()
                 return [Commessa(**dict(row)) for row in rows]
+
+    async def get_commessa_attiva(self) -> Optional[Commessa]:
+        """Recupera la commessa attualmente in lavorazione (se esiste)"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT * FROM commesse 
+                   WHERE stato IN ('in_lavorazione', 'ricetta_caricata') 
+                   ORDER BY data_inizio_produzione DESC 
+                   LIMIT 1"""
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return Commessa(**dict(row))
+        return None
 
     async def create_commessa(self, commessa: Commessa) -> int:
         """Crea una nuova commessa"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                """INSERT INTO commesse 
-                   (cliente_id, ricetta_id, quantita_richiesta, quantita_prodotta,
-                    data_ordine, data_consegna_prevista)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (commessa.cliente_id, commessa.ricetta_id, commessa.quantita_richiesta,
-                 commessa.quantita_prodotta, commessa.data_ordine, 
-                 commessa.data_consegna_prevista)
+                """INSERT INTO commesse (
+                    cliente_id, ricetta_id, quantita_richiesta, quantita_prodotta,
+                    data_ordine, data_consegna_prevista, stato, priorita, note
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    commessa.cliente_id, commessa.ricetta_id, commessa.quantita_richiesta,
+                    commessa.quantita_prodotta, commessa.data_ordine, 
+                    commessa.data_consegna_prevista, commessa.stato, commessa.priorita,
+                    commessa.note
+                )
             )
             await db.commit()
-            return cursor.lastrowid
+            commessa_id = cursor.lastrowid
+            
+            # Log evento creazione
+            await self.insert_evento_commessa(
+                commessa_id=commessa_id,
+                tipo_evento='creata',
+                dettagli=json.dumps({
+                    'quantita': commessa.quantita_richiesta,
+                    'priorita': commessa.priorita
+                })
+            )
+            
+            return commessa_id
 
     async def update_commessa(self, commessa: Commessa):
         """Aggiorna una commessa esistente"""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """UPDATE commesse 
-                   SET cliente_id = ?, ricetta_id = ?, 
-                       quantita_richiesta = ?, quantita_prodotta = ?,
-                       data_ordine = ?, data_consegna_prevista = ?,
+                   SET cliente_id = ?, ricetta_id = ?, quantita_richiesta = ?,
+                       quantita_prodotta = ?, data_ordine = ?, data_consegna_prevista = ?,
                        data_inizio_produzione = ?, data_fine_produzione = ?,
+                       stato = ?, priorita = ?, note = ?,
                        updated_at = CURRENT_TIMESTAMP
                    WHERE id = ?""",
-                (commessa.cliente_id, commessa.ricetta_id,
-                 commessa.quantita_richiesta, commessa.quantita_prodotta,
-                 commessa.data_ordine, commessa.data_consegna_prevista,
-                 commessa.data_inizio_produzione, commessa.data_fine_produzione,
-                 commessa.id)
+                (
+                    commessa.cliente_id, commessa.ricetta_id, commessa.quantita_richiesta,
+                    commessa.quantita_prodotta, commessa.data_ordine, 
+                    commessa.data_consegna_prevista, commessa.data_inizio_produzione,
+                    commessa.data_fine_produzione, commessa.stato, commessa.priorita,
+                    commessa.note, commessa.id
+                )
             )
             await db.commit()
 
-    async def incrementa_quantita_prodotta(self, commessa_id: int, incremento: int = 1):
-        """Incrementa la quantità prodotta per una commessa"""
+    async def update_stato_commessa(self, commessa_id: int, nuovo_stato: str, dettagli: Optional[Dict] = None):
+        """
+        Aggiorna lo stato di una commessa e registra l'evento
+        
+        Args:
+            commessa_id: ID della commessa
+            nuovo_stato: Nuovo stato ('in_attesa', 'ricetta_caricata', 'in_lavorazione', 'completata', 'annullata', 'errore')
+            dettagli: Dettagli aggiuntivi da loggare
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            # Aggiorna timestamp specifici in base allo stato
+            extra_updates = ""
+            if nuovo_stato == 'in_lavorazione':
+                extra_updates = ", data_inizio_produzione = CURRENT_TIMESTAMP"
+            elif nuovo_stato in ('completata', 'annullata'):
+                extra_updates = ", data_fine_produzione = CURRENT_TIMESTAMP"
+            
+            await db.execute(
+                f"""UPDATE commesse 
+                   SET stato = ?, updated_at = CURRENT_TIMESTAMP {extra_updates}
+                   WHERE id = ?""",
+                (nuovo_stato, commessa_id)
+            )
+            await db.commit()
+            
+            # Log evento
+            evento_tipo = {
+                'ricetta_caricata': 'ricetta_caricata',
+                'in_lavorazione': 'avviata',
+                'completata': 'completata',
+                'annullata': 'annullata',
+                'errore': 'errore'
+            }.get(nuovo_stato, 'cambio_stato')
+            
+            await self.insert_evento_commessa(
+                commessa_id=commessa_id,
+                tipo_evento=evento_tipo,
+                dettagli=json.dumps(dettagli) if dettagli else None
+            )
+
+    async def update_quantita_prodotta(self, commessa_id: int, quantita: int):
+        """Aggiorna la quantità prodotta di una commessa"""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """UPDATE commesse 
-                   SET quantita_prodotta = quantita_prodotta + ?,
-                       updated_at = CURRENT_TIMESTAMP
+                   SET quantita_prodotta = ?, updated_at = CURRENT_TIMESTAMP
                    WHERE id = ?""",
-                (incremento, commessa_id)
+                (quantita, commessa_id)
             )
             await db.commit()
+
+    async def delete_commessa(self, commessa_id: int):
+        """Elimina una commessa (CASCADE elimina anche gli eventi)"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM commesse WHERE id = ?", (commessa_id,))
+            await db.commit()
+
+    # ========================================================================
+    # EVENTI COMMESSA
+    # ========================================================================
+
+    async def insert_evento_commessa(
+        self, 
+        commessa_id: int, 
+        tipo_evento: str,
+        dettagli: Optional[str] = None,
+        utente: Optional[str] = None
+    ) -> int:
+        """Inserisce un evento per una commessa"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """INSERT INTO eventi_commessa (commessa_id, tipo_evento, dettagli, utente)
+                   VALUES (?, ?, ?, ?)""",
+                (commessa_id, tipo_evento, dettagli, utente)
+            )
+            await db.commit()
+            return cursor.lastrowid
+
+    async def get_eventi_commessa(self, commessa_id: int, limit: int = 50) -> List[EventoCommessa]:
+        """Recupera gli eventi di una specifica commessa"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """SELECT * FROM eventi_commessa 
+                   WHERE commessa_id = ?
+                   ORDER BY timestamp DESC 
+                   LIMIT ?""",
+                (commessa_id, limit)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [EventoCommessa(**dict(row)) for row in rows]
 
     # ========================================================================
     # EVENTI MACCHINA
@@ -316,54 +445,28 @@ class DatabaseRepository:
         tipo_evento: str,
         stato_macchina: Optional[str] = None,
         lavorazione_id: Optional[int] = None,
-        dati: Optional[Dict[str, Any]] = None
+        dati: Optional[Dict] = None
     ) -> int:
-        """
-        Inserisce un nuovo evento macchina
-        
-        Args:
-            tipo_evento: Tipo evento (AVVIO, ARRESTO, CAMBIO_STATO, ecc.)
-            stato_macchina: Stato corrente macchina
-            lavorazione_id: ID lavorazione associata (opzionale)
-            dati: Dati aggiuntivi da salvare come JSON
-        """
+        """Inserisce un evento macchina"""
         dati_json = json.dumps(dati) if dati else None
         
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                """INSERT INTO eventi_macchina 
-                   (tipo_evento, stato_macchina, lavorazione_id, dati_json)
+                """INSERT INTO eventi_macchina (tipo_evento, stato_macchina, lavorazione_id, dati_json)
                    VALUES (?, ?, ?, ?)""",
                 (tipo_evento, stato_macchina, lavorazione_id, dati_json)
             )
             await db.commit()
             return cursor.lastrowid
 
-    async def get_eventi_macchina(
-        self,
-        limit: int = 100,
-        lavorazione_id: Optional[int] = None
-    ) -> List[EventoMacchina]:
-        """
-        Recupera gli eventi macchina
-        
-        Args:
-            limit: Numero massimo di eventi da recuperare
-            lavorazione_id: Filtra per lavorazione specifica (opzionale)
-        """
-        query = "SELECT * FROM eventi_macchina"
-        params = []
-        
-        if lavorazione_id:
-            query += " WHERE lavorazione_id = ?"
-            params.append(lavorazione_id)
-        
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-        
+    async def get_eventi_macchina(self, limit: int = 100) -> List[EventoMacchina]:
+        """Recupera gli ultimi eventi macchina"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(query, params) as cursor:
+            async with db.execute(
+                "SELECT * FROM eventi_macchina ORDER BY timestamp DESC LIMIT ?",
+                (limit,)
+            ) as cursor:
                 rows = await cursor.fetchall()
                 return [EventoMacchina(**dict(row)) for row in rows]
 
@@ -371,188 +474,156 @@ class DatabaseRepository:
     # ALLARMI
     # ========================================================================
 
-    async def insert_allarme(
-        self,
-        codice_allarme: int,
-        lavorazione_id: Optional[int] = None
-    ) -> int:
-        """Inserisce un nuovo allarme attivo"""
+    async def start_allarme(self, codice_allarme: int, lavorazione_id: Optional[int] = None) -> int:
+        """Registra l'inizio di un allarme"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                """INSERT INTO allarmi_storico 
-                   (codice_allarme, lavorazione_id)
+                """INSERT INTO allarmi_storico (codice_allarme, lavorazione_id)
                    VALUES (?, ?)""",
                 (codice_allarme, lavorazione_id)
             )
             await db.commit()
-            record_id = cursor.lastrowid
+            allarme_id = cursor.lastrowid
             
-            # Traccia l'allarme attivo
-            self._allarmi_attivi[codice_allarme] = record_id
+            # Memorizza l'allarme attivo
+            self._allarmi_attivi[codice_allarme] = allarme_id
             
-            return record_id
+            return allarme_id
 
-    async def chiudi_allarme(self, codice_allarme: int):
-        """Chiude un allarme quando viene risolto"""
+    async def end_allarme(self, codice_allarme: int):
+        """Chiude un allarme calcolando la durata"""
         if codice_allarme not in self._allarmi_attivi:
             return
         
-        record_id = self._allarmi_attivi[codice_allarme]
+        allarme_id = self._allarmi_attivi[codice_allarme]
         
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """UPDATE allarmi_storico 
                    SET timestamp_fine = CURRENT_TIMESTAMP,
-                       durata_secondi = (
-                           CAST((julianday(CURRENT_TIMESTAMP) - julianday(timestamp_inizio)) * 86400 AS INTEGER)
-                       )
+                       durata_secondi = (strftime('%s', 'now') - strftime('%s', timestamp_inizio))
                    WHERE id = ?""",
-                (record_id,)
+                (allarme_id,)
             )
             await db.commit()
         
-        # Rimuovi dalla lista allarmi attivi
         del self._allarmi_attivi[codice_allarme]
 
-    async def get_allarmi_storico(
-        self,
-        limit: int = 100,
-        lavorazione_id: Optional[int] = None
-    ) -> List[Allarme]:
-        """
-        Recupera lo storico allarmi
-        
-        Args:
-            limit: Numero massimo di allarmi da recuperare
-            lavorazione_id: Filtra per lavorazione specifica (opzionale)
-        """
-        query = "SELECT * FROM allarmi_storico"
-        params = []
-        
-        if lavorazione_id:
-            query += " WHERE lavorazione_id = ?"
-            params.append(lavorazione_id)
-        
-        query += " ORDER BY timestamp_inizio DESC LIMIT ?"
-        params.append(limit)
-        
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
-                return [Allarme(**dict(row)) for row in rows]
-
-    async def get_statistiche_allarmi(self, giorni: int = 30) -> List[Dict[str, Any]]:
-        """
-        Recupera statistiche allarmi per gli ultimi N giorni
-        
-        Args:
-            giorni: Numero di giorni da considerare
-            
-        Returns:
-            Lista di dizionari con codice_allarme, conteggio, durata_media
-        """
+    async def get_allarmi_attivi(self) -> List[Allarme]:
+        """Recupera gli allarmi ancora attivi"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """SELECT 
-                       codice_allarme,
-                       COUNT(*) as conteggio,
-                       AVG(durata_secondi) as durata_media_secondi,
-                       SUM(durata_secondi) as durata_totale_secondi
-                   FROM allarmi_storico
-                   WHERE timestamp_inizio >= datetime('now', '-' || ? || ' days')
-                   GROUP BY codice_allarme
-                   ORDER BY conteggio DESC""",
-                (giorni,)
+                "SELECT * FROM allarmi_storico WHERE timestamp_fine IS NULL"
             ) as cursor:
                 rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
+                return [Allarme(**dict(row)) for row in rows]
+
+    async def get_allarmi_storico(self, limit: int = 100) -> List[Allarme]:
+        """Recupera lo storico degli allarmi"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM allarmi_storico ORDER BY timestamp_inizio DESC LIMIT ?",
+                (limit,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [Allarme(**dict(row)) for row in rows]
 
     # ========================================================================
-    # MONITORAGGIO PERIODICO
+    # MONITORAGGIO STATO MACCHINA
     # ========================================================================
 
-    async def monitor_machine_state(self, machine_data: Dict[str, Any], lavorazione_id: Optional[int] = None):
+    async def process_machine_state(self, machine_data: Dict[str, Any], lavorazione_id: Optional[int] = None):
         """
-        Monitora lo stato della macchina e registra eventi/allarmi quando necessario
+        Processa lo stato della macchina e registra eventi/allarmi quando cambiano
         
         Args:
-            machine_data: Dati correnti della macchina (da MinipackTorreOPCUA)
-            lavorazione_id: ID lavorazione corrente (se in produzione)
+            machine_data: Dizionario con tutti i dati della macchina
+            lavorazione_id: ID della commessa in lavorazione (se esiste)
         """
-        # Estrai dati rilevanti
-        status_flags = machine_data.get('status', {})
-        allarmi_correnti = set(alarm['code'] for alarm in machine_data.get('alarms', []))
-        
+        status_flags = machine_data.get('status_flags', {})
         stato_attuale = self._determina_stato_macchina(status_flags)
+        ricetta_corrente = machine_data.get('production_data', {}).get('current_recipe', '')
         
         # ====================================================================
-        # 1. RILEVAMENTO CAMBIO STATO
+        # GESTIONE ALLARMI
         # ====================================================================
-        if self._ultimo_stato is None or self._ultimo_stato.get('stato') != stato_attuale:
+        allarmi_attuali = set()
+        for i in range(9):
+            allarme = machine_data.get('active_alarms', {}).get(f'alarm_{i+1}')
+            if allarme and allarme.get('code', 0) != 0:
+                codice = allarme['code']
+                allarmi_attuali.add(codice)
+                
+                # Nuovo allarme
+                if codice not in self._allarmi_attivi:
+                    await self.start_allarme(codice, lavorazione_id)
+                    await self.insert_evento_macchina(
+                        tipo_evento="ALLARME_INIZIO",
+                        stato_macchina=stato_attuale,
+                        lavorazione_id=lavorazione_id,
+                        dati={'codice_allarme': codice}
+                    )
+        
+        # Chiudi allarmi risolti
+        allarmi_risolti = set(self._allarmi_attivi.keys()) - allarmi_attuali
+        for codice in allarmi_risolti:
+            await self.end_allarme(codice)
+            await self.insert_evento_macchina(
+                tipo_evento="ALLARME_FINE",
+                stato_macchina=stato_attuale,
+                lavorazione_id=lavorazione_id,
+                dati={'codice_allarme': codice}
+            )
+        
+        # ====================================================================
+        # PRIMO AVVIO - INIZIALIZZA STATO
+        # ====================================================================
+        if self._ultimo_stato is None:
+            await self.insert_evento_macchina(
+                tipo_evento="SISTEMA_AVVIATO",
+                stato_macchina=stato_attuale,
+                lavorazione_id=lavorazione_id,
+                dati={'ricetta': ricetta_corrente}
+            )
+            self._ultimo_stato = {
+                'stato': stato_attuale,
+                'ricetta': ricetta_corrente,
+                'timestamp': machine_data.get('timestamp')
+            }
+            return
+        
+        # ====================================================================
+        # RILEVA CAMBIAMENTI STATO
+        # ====================================================================
+        stato_cambiato = stato_attuale != self._ultimo_stato['stato']
+        ricetta_cambiata = ricetta_corrente != self._ultimo_stato['ricetta']
+        
+        if stato_cambiato:
             await self.insert_evento_macchina(
                 tipo_evento="CAMBIO_STATO",
                 stato_macchina=stato_attuale,
                 lavorazione_id=lavorazione_id,
                 dati={
-                    'status_flags': status_flags,
-                    'timestamp': machine_data.get('timestamp')
+                    'stato_precedente': self._ultimo_stato['stato'],
+                    'stato_nuovo': stato_attuale
                 }
             )
         
-        # ====================================================================
-        # 2. RILEVAMENTO CAMBIO RICETTA
-        # ====================================================================
-        ricetta_corrente = machine_data.get('recipe')
-        if self._ultimo_stato and self._ultimo_stato.get('ricetta') != ricetta_corrente:
+        if ricetta_cambiata:
             await self.insert_evento_macchina(
                 tipo_evento="CAMBIO_RICETTA",
                 stato_macchina=stato_attuale,
                 lavorazione_id=lavorazione_id,
                 dati={
-                    'ricetta_precedente': self._ultimo_stato.get('ricetta'),
-                    'ricetta_nuova': ricetta_corrente,
-                    'timestamp': machine_data.get('timestamp')
+                    'ricetta_precedente': self._ultimo_stato['ricetta'],
+                    'ricetta_nuova': ricetta_corrente
                 }
             )
         
         # ====================================================================
-        # 3. GESTIONE ALLARMI
-        # ====================================================================
-        # Allarmi precedenti
-        allarmi_precedenti = set(self._allarmi_attivi.keys())
-        
-        # Nuovi allarmi (presenti ora ma non prima)
-        nuovi_allarmi = allarmi_correnti - allarmi_precedenti
-        for codice in nuovi_allarmi:
-            await self.insert_allarme(codice, lavorazione_id)
-            await self.insert_evento_macchina(
-                tipo_evento="ALLARME",
-                stato_macchina=stato_attuale,
-                lavorazione_id=lavorazione_id,
-                dati={
-                    'codice_allarme': codice,
-                    'timestamp': machine_data.get('timestamp')
-                }
-            )
-        
-        # Allarmi risolti (presenti prima ma non ora)
-        allarmi_risolti = allarmi_precedenti - allarmi_correnti
-        for codice in allarmi_risolti:
-            await self.chiudi_allarme(codice)
-            await self.insert_evento_macchina(
-                tipo_evento="ALLARME_RISOLTO",
-                stato_macchina=stato_attuale,
-                lavorazione_id=lavorazione_id,
-                dati={
-                    'codice_allarme': codice,
-                    'timestamp': machine_data.get('timestamp')
-                }
-            )
-        
-        # ====================================================================
-        # 4. AGGIORNA STATO PRECEDENTE
+        # AGGIORNA STATO PRECEDENTE
         # ====================================================================
         self._ultimo_stato = {
             'stato': stato_attuale,
@@ -576,8 +647,63 @@ class DatabaseRepository:
             return "SCONOSCIUTO"
 
     # ========================================================================
-    # UTILITY
+    # STATISTICHE E UTILITY
     # ========================================================================
+
+    async def get_commessa_con_dettagli(self, commessa_id: int) -> Optional[Dict[str, Any]]:
+        """Recupera una commessa con tutti i dettagli (cliente, ricetta, eventi)"""
+        commessa = await self.get_commessa(commessa_id)
+        if not commessa:
+            return None
+        
+        cliente = await self.get_cliente(commessa.cliente_id)
+        ricetta = await self.get_ricetta(commessa.ricetta_id)
+        eventi = await self.get_eventi_commessa(commessa_id, limit=20)
+        
+        return {
+            'commessa': asdict(commessa),
+            'cliente': asdict(cliente) if cliente else None,
+            'ricetta': asdict(ricetta) if ricetta else None,
+            'eventi': [asdict(e) for e in eventi],
+            'progresso_percentuale': (commessa.quantita_prodotta / commessa.quantita_richiesta * 100) if commessa.quantita_richiesta > 0 else 0
+        }
+
+    async def get_statistiche_commesse(self) -> Dict[str, Any]:
+        """Recupera statistiche sulle commesse"""
+        async with aiosqlite.connect(self.db_path) as db:
+            stats = {}
+            
+            # Conteggi per stato
+            async with db.execute(
+                "SELECT stato, COUNT(*) as count FROM commesse GROUP BY stato"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                stats['per_stato'] = {row[0]: row[1] for row in rows}
+            
+            # Commesse attive
+            async with db.execute(
+                "SELECT COUNT(*) FROM commesse WHERE stato IN ('in_lavorazione', 'ricetta_caricata', 'in_attesa')"
+            ) as cursor:
+                stats['attive'] = (await cursor.fetchone())[0]
+            
+            # Commesse completate oggi
+            async with db.execute(
+                """SELECT COUNT(*) FROM commesse 
+                   WHERE stato = 'completata' 
+                   AND DATE(data_fine_produzione) = DATE('now')"""
+            ) as cursor:
+                stats['completate_oggi'] = (await cursor.fetchone())[0]
+            
+            # Quantità totale prodotta oggi
+            async with db.execute(
+                """SELECT SUM(quantita_prodotta) FROM commesse 
+                   WHERE stato = 'completata' 
+                   AND DATE(data_fine_produzione) = DATE('now')"""
+            ) as cursor:
+                result = await cursor.fetchone()
+                stats['pezzi_prodotti_oggi'] = result[0] if result[0] else 0
+            
+            return stats
 
     async def get_database_stats(self) -> Dict[str, Any]:
         """Recupera statistiche generali del database"""
@@ -595,7 +721,7 @@ class DatabaseRepository:
                 stats['num_commesse_totali'] = (await cursor.fetchone())[0]
             
             async with db.execute(
-                "SELECT COUNT(*) FROM commesse WHERE data_fine_produzione IS NULL"
+                "SELECT COUNT(*) FROM commesse WHERE stato IN ('in_lavorazione', 'ricetta_caricata')"
             ) as cursor:
                 stats['num_commesse_attive'] = (await cursor.fetchone())[0]
             

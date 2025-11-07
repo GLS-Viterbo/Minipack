@@ -1,12 +1,12 @@
 """
-REST API per monitoraggio macchina MinipackTorre con integrazione database
-Estende l'API esistente con endpoint per gestione commesse e statistiche
+REST API per monitoraggio macchina MinipackTorre con gestione completa commesse
+Versione 3.0 - Integrazione completa sistema commesse
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import asyncio
 from contextlib import asynccontextmanager
@@ -14,23 +14,32 @@ from contextlib import asynccontextmanager
 from minipack import MinipackTorreOPCUA
 from database import DatabaseRepository, Cliente, Ricetta, Commessa
 from monitoring_service import MonitoringService
+from commesse_service import CommesseService, CommesseMonitoringTask
 
 # Configurazione server OPC UA
 OPC_SERVER = "opc.tcp://10.58.156.65:4840"
 OPC_USERNAME = "admin"
 OPC_PASSWORD = "Minipack1"
 
-# Servizio di monitoraggio globale
+# Servizi globali
 monitoring_service: Optional[MonitoringService] = None
+commesse_service: Optional[CommesseService] = None
+commesse_monitoring_task: Optional[CommesseMonitoringTask] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestione lifecycle dell'applicazione"""
-    global monitoring_service
+    global monitoring_service, commesse_service, commesse_monitoring_task
     
     # Startup
-    print("🚀 Avvio servizio di monitoraggio...")
+    print("🚀 Avvio servizi...")
+    
+    # Database
+    db = DatabaseRepository()
+    await db.connect()
+    
+    # Servizio monitoraggio macchina
     monitoring_service = MonitoringService(
         opc_server=OPC_SERVER,
         opc_username=OPC_USERNAME,
@@ -38,19 +47,44 @@ async def lifespan(app: FastAPI):
         polling_interval=5
     )
     await monitoring_service.start()
+    print("✅ Servizio monitoraggio macchina avviato")
+    
+    # Servizio gestione commesse
+    commesse_service = CommesseService(
+        db=db,
+        opc_server=OPC_SERVER,
+        opc_username=OPC_USERNAME,
+        opc_password=OPC_PASSWORD
+    )
+    print("✅ Servizio gestione commesse inizializzato")
+    
+    # Task monitoraggio commesse
+    commesse_monitoring_task = CommesseMonitoringTask(
+        commesse_service=commesse_service,
+        db=db,
+        opc_server=OPC_SERVER,
+        opc_username=OPC_USERNAME,
+        opc_password=OPC_PASSWORD,
+        intervallo=5
+    )
+    commesse_monitoring_task.start()
+    print("✅ Task monitoraggio commesse avviato")
     
     yield
     
     # Shutdown
-    print("🛑 Arresto servizio di monitoraggio...")
+    print("🛑 Arresto servizi...")
     if monitoring_service:
         await monitoring_service.stop()
+    if commesse_monitoring_task:
+        commesse_monitoring_task.stop()
+    await db.disconnect()
 
 
 app = FastAPI(
-    title="MinipackTorre API with Database",
-    description="API per monitoraggio real-time macchina confezionatrice con tracciabilità produzione",
-    version="2.0.0",
+    title="MinipackTorre API - Gestione Commesse",
+    description="API completa per monitoraggio macchina e gestione commesse di produzione",
+    version="3.0.0",
     lifespan=lifespan
 )
 
@@ -100,6 +134,7 @@ class MachineData(BaseModel):
     center_sealing_position: float
 
 
+# Modelli Cliente
 class ClienteCreate(BaseModel):
     nome: str
     partita_iva: Optional[str] = None
@@ -111,10 +146,11 @@ class ClienteResponse(BaseModel):
     nome: str
     partita_iva: Optional[str]
     codice_fiscale: Optional[str]
-    created_at: str
-    updated_at: str
+    created_at: Optional[str]
+    updated_at: Optional[str]
 
 
+# Modelli Ricetta
 class RicettaCreate(BaseModel):
     nome: str
     descrizione: Optional[str] = None
@@ -126,12 +162,14 @@ class RicettaResponse(BaseModel):
     descrizione: Optional[str]
 
 
+# Modelli Commessa
 class CommessaCreate(BaseModel):
     cliente_id: int
     ricetta_id: int
     quantita_richiesta: int
-    data_ordine: str
     data_consegna_prevista: Optional[str] = None
+    priorita: str = 'normale'
+    note: Optional[str] = None
 
 
 class CommessaResponse(BaseModel):
@@ -144,14 +182,14 @@ class CommessaResponse(BaseModel):
     data_consegna_prevista: Optional[str]
     data_inizio_produzione: Optional[str]
     data_fine_produzione: Optional[str]
-    created_at: str
-    updated_at: str
+    stato: str
+    priorita: str
+    note: Optional[str]
+    created_at: Optional[str]
+    updated_at: Optional[str]
 
 
-class StartLavorazioneRequest(BaseModel):
-    commessa_id: int
-
-
+# Modelli richieste specifiche
 class LoadRecipeRequest(BaseModel):
     recipe_name: str
 
@@ -159,90 +197,59 @@ class LoadRecipeRequest(BaseModel):
 class LoadRecipeResponse(BaseModel):
     success: bool
     message: str
-    recipe_name: str
+    recipe_name: Optional[str] = None
 
 
-# Dizionario messaggi allarmi
-ALARM_MESSAGES = {
-    1: "EMERGENZA ATTIVA",
-    2: "RIPARI APERTI",
-    3: "BYPASS SICUREZZA RIPARI",
-    6: "ALTEZZA MASSIMA TRIANGOLO",
-    10: "MACCHINA IN RISCALDAMENTO",
-    11: "AVVOLGITORE PIENO",
-    12: "BOBINA IN ESAURIMENTO",
-    13: "FILM ESAURITO",
-    14: "NASTRI NON DISTANZIATI",
-    15: "ERRORE CIRCUITO TEMPERATURE",
-    17: "SVOLGITORE TIMEOUT",
-    20: "INVERTER ERRORE",
-    22: "MANUTENZIONE IN CORSO",
-    23: "NASTRO CARICO VUOTO",
-    25: "NUMERO LOTTO RAGGIUNTO",
-    26: "ROTTURA FILM",
-    27: "FOTOCELLULE TIMEOUT",
-    29: "AVVICINAMENTO NASTRO ERRORE",
-    33: "CENTER SEALING FINECORSA ALTO",
-    34: "SVOLGITORE FUORI POSIZIONE",
-    35: "TRIANGOLO ERRORE MOVIMENTAZIONE",
-    41: "HOMING TIMEOUT",
-    42: "HOMING FALLITO",
-    46: "CENTER SEALING ERRORE",
-    48: "ERRORE STAMPANTE",
-    49: "CENTER SEALING BLOCCO",
-    50: "TRIANGOLO BLOCCO",
-    51: "NASTRO CARICO NON DISPONIBILE",
-    52: "NASTRO SCARICO NON DISPONIBILE",
-    54: "BARRA SALDANTE TIMEOUT",
-    55: "BARRA SALDANTE OSTACOLO",
-    73: "LINEA VALLE MANCA CONSENSO",
-    74: "BARRA SALDANTE CAN ASSENTE",
-    75: "INVERTER CAN ASSENTE",
-    76: "CXCAN1 ASSENTE",
-    77: "CXCAN2 ASSENTE",
-    78: "ALLARME BARRA SALDANTE",
-    79: "AVVICINAMENTO NASTRO TIMEOUT",
-    80: "INVERTER TIMEOUT START"
-}
+class CaricaRicettaCommessaRequest(BaseModel):
+    commessa_id: int
 
 
-def get_status_text(status_flags: dict) -> str:
-    """Determina il testo dello stato macchina"""
-    if status_flags['emergenza']:
-        return "EMERGENZA"
-    elif status_flags['start_automatico']:
-        return "IN PRODUZIONE (AUTO)"
-    elif status_flags['start_manuale']:
-        return "IN MARCIA (MANUALE)"
-    elif status_flags['stop_automatico']:
-        return "PRONTA (STOP AUTO)"
-    elif status_flags['stop_manuale']:
-        return "FERMATA (STOP MANUALE)"
-    else:
-        return "STATO SCONOSCIUTO"
+class AvviaCommessaResponse(BaseModel):
+    success: bool
+    message: str
+    details: Optional[Dict[str, Any]] = None
 
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
 async def get_machine_data() -> MachineData:
-    """Recupera tutti i dati dalla macchina"""
+    """Recupera tutti i dati della macchina"""
     client = MinipackTorreOPCUA(OPC_SERVER, OPC_USERNAME, OPC_PASSWORD)
     
     try:
         await client.connect()
         
-        # Recupera status flags
+        # Recupera stato
         status_flags = await client.get_status_flags()
         
-        # Recupera allarmi
-        alarm_codes = await client.get_allarmi_attivi()
-        alarms = [
-            AlarmInfo(
-                code=code,
-                message=ALARM_MESSAGES.get(code, f"Allarme sconosciuto (codice {code})")
-            )
-            for code in alarm_codes
-        ]
+        # Determina testo stato
+        if status_flags['emergenza']:
+            status_text = "EMERGENZA"
+        elif status_flags['start_automatico']:
+            status_text = "START AUTOMATICO"
+        elif status_flags['start_manuale']:
+            status_text = "START MANUALE"
+        elif status_flags['stop_automatico']:
+            status_text = "STOP AUTOMATICO"
+        elif status_flags['stop_manuale']:
+            status_text = "STOP MANUALE"
+        else:
+            status_text = "SCONOSCIUTO"
         
-        # Costruisce la risposta
+        # Recupera allarmi
+        raw_alarms = await client.get_allarmi()
+        alarms = []
+        for i in range(1, 10):
+            alarm_data = raw_alarms.get(f'alarm_{i}', {})
+            if alarm_data and alarm_data.get('code', 0) != 0:
+                alarms.append(AlarmInfo(
+                    code=alarm_data['code'],
+                    message=alarm_data.get('message', f'Allarme {alarm_data["code"]}')
+                ))
+        
+        # Componi risposta
         data = MachineData(
             timestamp=datetime.now().isoformat(),
             connected=True,
@@ -254,16 +261,16 @@ async def get_machine_data() -> MachineData:
                 stop_automatico=status_flags['stop_automatico'],
                 start_automatico=status_flags['start_automatico'],
                 emergenza=status_flags['emergenza'],
-                status_text=get_status_text(status_flags)
+                status_text=status_text
             ),
             alarms=alarms,
             has_alarms=len(alarms) > 0,
             recipe=await client.get_ricetta_in_lavorazione(),
-            total_pieces=int(await client.get_contapezzi_vita()),
-            partial_pieces=int(await client.get_contapezzi_parziale()),
-            batch_counter=int(await client.get_contatore_lotto()),
-            lateral_bar_temp=await client.get_temperatura_barra_laterale(),
-            frontal_bar_temp=await client.get_temperatura_barra_frontale(),
+            total_pieces=await client.get_contapezzi_vita(),
+            partial_pieces=await client.get_contapezzi_parziale(),
+            batch_counter=await client.get_contatore_lotto(),
+            lateral_bar_temp=await client.get_temp_barra_laterale(),
+            frontal_bar_temp=await client.get_temp_barra_frontale(),
             triangle_position=await client.get_posizione_triangolo(),
             center_sealing_position=await client.get_posizione_center_sealing(),
         )
@@ -277,83 +284,71 @@ async def get_machine_data() -> MachineData:
 
 
 # ============================================================================
-# ENDPOINT MACCHINA (ESISTENTI)
+# ENDPOINT ROOT E HEALTH
 # ============================================================================
 
 @app.get("/")
 async def root():
     """Endpoint radice con informazioni API"""
     return {
-        "name": "MinipackTorre API with Database",
-        "version": "2.0.0",
+        "name": "MinipackTorre API - Gestione Commesse",
+        "version": "3.0.0",
+        "description": "API completa per monitoraggio macchina e gestione commesse di produzione",
         "endpoints": {
-            "/data": "GET - Tutti i dati della macchina",
-            "/load-recipe": "POST - Carica una ricetta sulla macchina",
-            "/reset-alarms": "POST - Reset allarmi macchina",
-            "/health": "GET - Stato dell'API",
-            "/clienti": "GET/POST - Gestione clienti",
-            "/ricette": "GET/POST - Gestione ricette",
-            "/commesse": "GET/POST - Gestione commesse",
-            "/lavorazioni/start": "POST - Avvia lavorazione",
-            "/lavorazioni/stop": "POST - Termina lavorazione",
-            "/statistiche": "GET - Statistiche produzione e allarmi"
+            "machine": {
+                "/data": "GET - Dati real-time macchina",
+                "/health": "GET - Stato servizi",
+                "/reset-alarms": "POST - Reset allarmi"
+            },
+            "clienti": {
+                "/clienti": "GET - Lista clienti / POST - Crea cliente",
+                "/clienti/{id}": "GET - Dettaglio cliente / DELETE - Elimina cliente"
+            },
+            "ricette": {
+                "/ricette": "GET - Lista ricette / POST - Crea ricetta",
+                "/ricette/{id}": "DELETE - Elimina ricetta"
+            },
+            "commesse": {
+                "/commesse": "GET - Lista commesse / POST - Crea commessa",
+                "/commesse/{id}": "GET - Dettaglio commessa completo",
+                "/commesse/{id}/carica-ricetta": "POST - Carica ricetta e imposta contatore",
+                "/commesse/{id}/annulla": "POST - Annulla commessa",
+                "/commesse/attive": "GET - Lista commesse attive",
+                "/commesse/statistiche": "GET - Statistiche commesse"
+            }
         }
     }
 
 
 @app.get("/health")
 async def health_check():
-    """Health check dell'API"""
+    """Health check completo dell'API e servizi"""
+    db = DatabaseRepository()
+    await db.connect()
+    db_stats = await db.get_database_stats()
+    await db.disconnect()
+    
     status = await monitoring_service.get_current_status()
+    
     return {
         "api_status": "ok",
-        "monitoring_active": status['monitoring_active'],
+        "services": {
+            "monitoring_active": status['monitoring_active'],
+            "commesse_monitoring_active": commesse_monitoring_task.running if commesse_monitoring_task else False
+        },
+        "database": db_stats,
         "timestamp": datetime.now().isoformat()
     }
 
 
+# ============================================================================
+# ENDPOINT MACCHINA
+# ============================================================================
+
 @app.get("/data", response_model=MachineData)
 async def get_data():
-    """Endpoint principale: restituisce tutti i dati della macchina"""
+    """Recupera tutti i dati della macchina in tempo reale"""
     return await get_machine_data()
-
-
-@app.post("/load-recipe", response_model=LoadRecipeResponse)
-async def load_recipe(request: LoadRecipeRequest):
-    """Carica una ricetta sulla macchina"""
-    client = MinipackTorreOPCUA(OPC_SERVER, OPC_USERNAME, OPC_PASSWORD)
-    
-    try:
-        await client.connect()
-        
-        status_flags = await client.get_status_flags()
-        if not status_flags['stop_automatico']:
-            await client.disconnect()
-            return LoadRecipeResponse(
-                success=False,
-                message="La macchina deve essere in stop automatico per caricare una ricetta",
-                recipe_name=request.recipe_name
-            )
-        
-        success = await client.carica_ricetta(request.recipe_name, timeout=30.0)
-        await client.disconnect()
-        
-        if success:
-            return LoadRecipeResponse(
-                success=True,
-                message=f"Ricetta '{request.recipe_name}' caricata con successo",
-                recipe_name=request.recipe_name
-            )
-        else:
-            return LoadRecipeResponse(
-                success=False,
-                message=f"Caricamento ricetta '{request.recipe_name}' fallito",
-                recipe_name=request.recipe_name
-            )
-        
-    except Exception as e:
-        await client.disconnect()
-        raise HTTPException(status_code=500, detail=f"Errore durante il caricamento: {str(e)}")
 
 
 @app.post("/reset-alarms")
@@ -445,36 +440,32 @@ async def get_cliente(cliente_id: int):
         updated_at=cliente.updated_at
     )
 
+
 @app.delete("/clienti/{cliente_id}")
 async def delete_cliente(cliente_id: int):
     """Elimina un cliente"""
     db = DatabaseRepository()
     await db.connect()
     
-    # Verifica che il cliente esista
     cliente = await db.get_cliente(cliente_id)
     if not cliente:
         await db.disconnect()
         raise HTTPException(status_code=404, detail="Cliente non trovato")
     
-    # Verifica che non ci siano commesse associate al cliente
-    # Questo previene l'eliminazione di clienti con dati storici
     try:
         await db.delete_cliente(cliente_id)
         await db.disconnect()
-        
         return {
             "success": True,
-            "message": f"Cliente '{cliente.nome}' eliminato con successo",
-            "id": cliente_id
+            "message": f"Cliente '{cliente.nome}' eliminato con successo"
         }
     except Exception as e:
         await db.disconnect()
-        # Errore probabilmente dovuto a foreign key constraint
         raise HTTPException(
             status_code=400, 
-            detail="Impossibile eliminare il cliente: potrebbe avere commesse associate"
+            detail="Impossibile eliminare: il cliente potrebbe avere commesse associate"
         )
+
 
 # ============================================================================
 # ENDPOINT RICETTE
@@ -524,46 +515,41 @@ async def delete_ricetta(ricetta_id: int):
     db = DatabaseRepository()
     await db.connect()
     
-    # Verifica che la ricetta esista
     ricetta = await db.get_ricetta(ricetta_id)
     if not ricetta:
         await db.disconnect()
         raise HTTPException(status_code=404, detail="Ricetta non trovata")
     
-    # Verifica che non ci siano commesse associate alla ricetta
-    # Questo previene l'eliminazione di ricette con dati storici
     try:
         await db.delete_ricetta(ricetta_id)
         await db.disconnect()
-        
         return {
             "success": True,
-            "message": f"Ricetta '{ricetta.nome}' eliminata con successo",
-            "id": ricetta_id
+            "message": f"Ricetta '{ricetta.nome}' eliminata con successo"
         }
     except Exception as e:
         await db.disconnect()
-        # Errore probabilmente dovuto a foreign key constraint
         raise HTTPException(
             status_code=400, 
-            detail="Impossibile eliminare la ricetta: potrebbe essere utilizzata in commesse"
+            detail="Impossibile eliminare: la ricetta potrebbe essere utilizzata in commesse"
         )
 
+
 # ============================================================================
-# ENDPOINT COMMESSE
+# ENDPOINT COMMESSE - PRINCIPALI
 # ============================================================================
 
 @app.get("/commesse", response_model=List[CommessaResponse])
-async def get_commesse(attive_only: bool = False):
+async def get_commesse(stato: Optional[str] = None):
     """
-    Recupera le commesse
+    Recupera le commesse, opzionalmente filtrate per stato
     
     Query params:
-        attive_only: Se true, recupera solo commesse non completate
+        stato: Filtra per stato ('in_attesa', 'ricetta_caricata', 'in_lavorazione', 'completata', 'annullata', 'errore')
     """
     db = DatabaseRepository()
     await db.connect()
-    commesse = await db.get_commesse(attive_only=attive_only)
+    commesse = await db.get_commesse(filtro_stato=stato)
     await db.disconnect()
     
     return [CommessaResponse(
@@ -576,6 +562,32 @@ async def get_commesse(attive_only: bool = False):
         data_consegna_prevista=c.data_consegna_prevista,
         data_inizio_produzione=c.data_inizio_produzione,
         data_fine_produzione=c.data_fine_produzione,
+        stato=c.stato,
+        priorita=c.priorita,
+        note=c.note,
+        created_at=c.created_at,
+        updated_at=c.updated_at
+    ) for c in commesse]
+
+
+@app.get("/commesse/attive", response_model=List[CommessaResponse])
+async def get_commesse_attive():
+    """Recupera solo le commesse attive (in_attesa, ricetta_caricata, in_lavorazione)"""
+    commesse = await commesse_service.get_commesse_attive()
+    
+    return [CommessaResponse(
+        id=c.id,
+        cliente_id=c.cliente_id,
+        ricetta_id=c.ricetta_id,
+        quantita_richiesta=c.quantita_richiesta,
+        quantita_prodotta=c.quantita_prodotta,
+        data_ordine=c.data_ordine,
+        data_consegna_prevista=c.data_consegna_prevista,
+        data_inizio_produzione=c.data_inizio_produzione,
+        data_fine_produzione=c.data_fine_produzione,
+        stato=c.stato,
+        priorita=c.priorita,
+        note=c.note,
         created_at=c.created_at,
         updated_at=c.updated_at
     ) for c in commesse]
@@ -583,20 +595,28 @@ async def get_commesse(attive_only: bool = False):
 
 @app.post("/commesse", response_model=CommessaResponse)
 async def create_commessa(commessa: CommessaCreate):
-    """Crea una nuova commessa"""
-    db = DatabaseRepository()
-    await db.connect()
+    """
+    Crea una nuova commessa
     
-    new_commessa = Commessa(
-        id=None,
+    Validazioni:
+    - Cliente deve esistere
+    - Ricetta deve esistere
+    - Quantità deve essere > 0
+    """
+    success, commessa_id, message = await commesse_service.crea_commessa(
         cliente_id=commessa.cliente_id,
         ricetta_id=commessa.ricetta_id,
         quantita_richiesta=commessa.quantita_richiesta,
-        data_ordine=commessa.data_ordine,
-        data_consegna_prevista=commessa.data_consegna_prevista
+        data_consegna_prevista=commessa.data_consegna_prevista,
+        priorita=commessa.priorita,
+        note=commessa.note
     )
     
-    commessa_id = await db.create_commessa(new_commessa)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    db = DatabaseRepository()
+    await db.connect()
     created = await db.get_commessa(commessa_id)
     await db.disconnect()
     
@@ -610,71 +630,75 @@ async def create_commessa(commessa: CommessaCreate):
         data_consegna_prevista=created.data_consegna_prevista,
         data_inizio_produzione=created.data_inizio_produzione,
         data_fine_produzione=created.data_fine_produzione,
+        stato=created.stato,
+        priorita=created.priorita,
+        note=created.note,
         created_at=created.created_at,
         updated_at=created.updated_at
     )
 
 
-# ============================================================================
-# ENDPOINT LAVORAZIONI
-# ============================================================================
-
-@app.post("/lavorazioni/start")
-async def start_lavorazione(request: StartLavorazioneRequest):
-    """Avvia una nuova lavorazione per una commessa"""
-    try:
-        await monitoring_service.start_lavorazione(request.commessa_id)
-        return {
-            "success": True,
-            "message": f"Lavorazione avviata per commessa #{request.commessa_id}"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/lavorazioni/stop")
-async def stop_lavorazione():
-    """Termina la lavorazione corrente"""
-    try:
-        await monitoring_service.stop_lavorazione()
-        return {
-            "success": True,
-            "message": "Lavorazione terminata"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/lavorazioni/current")
-async def get_current_lavorazione():
-    """Recupera informazioni sulla lavorazione corrente"""
-    if not monitoring_service.current_lavorazione_id:
-        return {
-            "active": False,
-            "lavorazione_id": None
-        }
+@app.get("/commesse/{commessa_id}")
+async def get_commessa_dettagli(commessa_id: int):
+    """
+    Recupera dettagli completi di una commessa
+    Include: dati commessa, cliente, ricetta, eventi, progresso
+    """
+    dettagli = await commesse_service.get_stato_commessa(commessa_id)
     
-    db = DatabaseRepository()
-    await db.connect()
-    commessa = await db.get_commessa(monitoring_service.current_lavorazione_id)
-    await db.disconnect()
+    if not dettagli:
+        raise HTTPException(status_code=404, detail="Commessa non trovata")
+    
+    return dettagli
+
+
+# ============================================================================
+# ENDPOINT COMMESSE - OPERAZIONI
+# ============================================================================
+
+@app.post("/commesse/{commessa_id}/carica-ricetta", response_model=AvviaCommessaResponse)
+async def carica_ricetta_commessa(commessa_id: int):
+    """
+    Carica la ricetta di una commessa sulla macchina e imposta il contatore lotto
+    
+    Prerequisiti:
+    - Commessa in stato 'in_attesa'
+    - Macchina in STOP AUTOMATICO
+    - Nessun'altra commessa attiva
+    
+    Operazioni eseguite:
+    1. Carica ricetta tramite protocollo OPC UA
+    2. Imposta contatore lotto con quantità richiesta
+    3. Aggiorna stato commessa a 'ricetta_caricata'
+    4. Logga evento nel database
+    """
+    success, message, details = await commesse_service.carica_ricetta_commessa(commessa_id)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    return AvviaCommessaResponse(
+        success=success,
+        message=message,
+        details=details
+    )
+
+
+@app.post("/commesse/{commessa_id}/annulla")
+async def annulla_commessa(commessa_id: int, motivo: Optional[str] = None):
+    """
+    Annulla una commessa
+    
+    La commessa viene marcata come 'annullata' e non può più essere riavviata
+    """
+    success, message = await commesse_service.annulla_commessa(commessa_id, motivo)
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
     
     return {
-        "active": True,
-        "lavorazione_id": monitoring_service.current_lavorazione_id,
-        "commessa": CommessaResponse(
-            id=commessa.id,
-            cliente_id=commessa.cliente_id,
-            ricetta_id=commessa.ricetta_id,
-            quantita_richiesta=commessa.quantita_richiesta,
-            quantita_prodotta=commessa.quantita_prodotta,
-            data_ordine=commessa.data_ordine,
-            data_consegna_prevista=commessa.data_consegna_prevista,
-            data_inizio_produzione=commessa.data_inizio_produzione,
-            data_fine_produzione=commessa.data_fine_produzione,
-            created_at=commessa.created_at,
-            updated_at=commessa.updated_at
-        )
+        "success": success,
+        "message": message
     }
 
 
@@ -682,45 +706,52 @@ async def get_current_lavorazione():
 # ENDPOINT STATISTICHE
 # ============================================================================
 
-@app.get("/statistiche/overview")
-async def get_statistiche_overview():
-    """Recupera statistiche generali"""
-    status = await monitoring_service.get_current_status()
-    return status
-
-
-@app.get("/statistiche/allarmi")
-async def get_statistiche_allarmi(giorni: int = 7):
+@app.get("/commesse/statistiche")
+async def get_statistiche_commesse():
     """
-    Recupera statistiche allarmi
+    Recupera statistiche sulle commesse
     
-    Query params:
-        giorni: Numero di giorni da considerare (default: 7)
+    Ritorna:
+    - Conteggi per stato
+    - Commesse attive
+    - Commesse completate oggi
+    - Pezzi prodotti oggi
     """
-    stats = await monitoring_service.get_alarm_statistics(days=giorni)
-    
-    # Arricchisci con messaggi
-    for stat in stats:
-        stat['messaggio'] = ALARM_MESSAGES.get(
-            stat['codice_allarme'],
-            f"Allarme sconosciuto"
-        )
+    db = DatabaseRepository()
+    await db.connect()
+    stats = await db.get_statistiche_commesse()
+    await db.disconnect()
     
     return stats
 
 
-@app.get("/statistiche/eventi")
-async def get_statistiche_eventi(limit: int = 100):
-    """
-    Recupera eventi recenti
+@app.get("/statistiche")
+async def get_statistiche_generali():
+    """Statistiche generali del sistema"""
+    db = DatabaseRepository()
+    await db.connect()
     
-    Query params:
-        limit: Numero massimo di eventi (default: 100)
-    """
-    events = await monitoring_service.get_recent_events(limit=limit)
-    return events
+    db_stats = await db.get_database_stats()
+    commesse_stats = await db.get_statistiche_commesse()
+    
+    await db.disconnect()
+    
+    return {
+        "database": db_stats,
+        "commesse": commesse_stats,
+        "timestamp": datetime.now().isoformat()
+    }
 
+
+# ============================================================================
+# AVVIO APPLICAZIONE
+# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )

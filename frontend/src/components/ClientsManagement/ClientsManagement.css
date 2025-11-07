@@ -4,7 +4,7 @@
 
 .management-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: space-between !important;
   align-items: center;
   margin-bottom: 2rem;
   padding-bottom: 1.5rem;
@@ -12,9 +12,13 @@
 }
 
 .header-title-section {
-  display: flex;
+  display: flex !important;
   align-items: center;
-  gap: 1rem;
+  gap: 1rem !important;
+}
+
+.add-btn {
+  max-width: 30%;
 }
 
 .header-icon {

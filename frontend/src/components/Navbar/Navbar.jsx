@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Settings, RefreshCw } from 'lucide-react';
+import { Home, Settings, RefreshCw, Package } from 'lucide-react';
 import './Navbar.css';
 
 export function Navbar({ isPolling, onTogglePolling, onRefresh, lastUpdate }) {
@@ -34,6 +34,13 @@ export function Navbar({ isPolling, onTogglePolling, onRefresh, lastUpdate }) {
               <Settings size={20} />
               <span>Gestione</span>
             </Link>
+            <Link 
+              to="/commesse"
+              className={`nav-link ${location.pathname === '/commesse' ? 'active' : ''}`}
+            >
+            <Package size={18} />
+            Commesse
+          </Link>
           </nav>
           
           {location.pathname === '/' && (
