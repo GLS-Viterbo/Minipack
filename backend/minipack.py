@@ -247,6 +247,17 @@ class MinipackTorreOPCUA:
         except Exception as e:
             print(f"Scrittura con Variant Double fallita: {e}")
             raise Exception(f"Impossibile scrivere il contatore lotto. Tutti i metodi hanno fallito.")
+        
+    async def reset_contapezzi_parziale(self):
+        """Azzera il contatore parziale dei pezzi"""
+        node = await self._get_node('contapezzi_parziale')
+        try:
+            dv = ua.DataValue(ua.Variant(0.0, ua.VariantType.Double))
+            await node.write_value(dv)
+            return True
+        except Exception as e:
+            print(f"Impossibile azzerare contapezzi parziale: {e}")
+            return False
     
     async def get_ricetta_in_lavorazione(self) -> str:
         """Legge il nome della ricetta in lavorazione"""
@@ -291,7 +302,11 @@ class MinipackTorreOPCUA:
                 print("ERRORE: La macchina deve essere in stop automatico")
                 return False
             
-            # 1.5. Cambia contatore parziale
+            # 1.5. Azzera il contapezzi parziale per iniziare da zero
+            await self.reset_contapezzi_parziale()
+            await asyncio.sleep(0.2)
+            
+            # 1.6. Imposta il contatore lotto a zero prima di caricare
             await self.set_contatore_lotto(0)
             
             # 2. Imposta la ricetta da caricare
