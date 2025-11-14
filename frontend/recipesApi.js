@@ -17,6 +17,30 @@ export class RecipesClientsApiService {
     }
   }
 
+  static async interrompiCommessa(commessaId, motivo = null) {
+    try {
+      const body = motivo ? JSON.stringify({ motivo }) : null;
+
+      const response = await fetch(`${API_BASE_URL}/commesse/${commessaId}/interrompi`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: body,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error interrupting order:', error);
+      throw error;
+    }
+  }
+
   static async createClient(clientData) {
     try {
       const response = await fetch(`${API_BASE_URL}/clienti`, {
@@ -26,11 +50,11 @@ export class RecipesClientsApiService {
         },
         body: JSON.stringify(clientData),
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       console.error('Error creating client:', error);
@@ -76,11 +100,11 @@ export class RecipesClientsApiService {
         },
         body: JSON.stringify(recipeData),
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       console.error('Error creating recipe:', error);
@@ -97,11 +121,11 @@ export class RecipesClientsApiService {
         },
         body: JSON.stringify({ recipe_name: recipeName }),
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       console.error('Error loading recipe to machine:', error);
@@ -111,40 +135,40 @@ export class RecipesClientsApiService {
   /**
  * Elimina un cliente
  */
-static async deleteClient(clientId) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/clienti/${clientId}`, {
-      method: 'DELETE',
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error('Error deleting client:', error);
-    throw error;
-  }
-}
+  static async deleteClient(clientId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/clienti/${clientId}`, {
+        method: 'DELETE',
+      });
 
-/**
- * Elimina una ricetta
- */
-static async deleteRecipe(recipeId) {
-  try {
-    const response = await fetch(`${API_BASE_URL}/ricette/${recipeId}`, {
-      method: 'DELETE',
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error deleting client:', error);
+      throw error;
     }
-    
-    return await response.json();
-  } catch (error) {
-    console.error('Error deleting recipe:', error);
-    throw error;
   }
-}
+
+  /**
+   * Elimina una ricetta
+   */
+  static async deleteRecipe(recipeId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/ricette/${recipeId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error deleting recipe:', error);
+      throw error;
+    }
+  }
 }

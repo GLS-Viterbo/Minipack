@@ -10,6 +10,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import asyncio
 from contextlib import asynccontextmanager
+import json
 
 from minipack import MinipackTorreOPCUA
 from database import DatabaseRepository, Cliente, Ricetta, Commessa
@@ -217,6 +218,48 @@ class AvviaCommessaResponse(BaseModel):
 async def get_machine_data() -> MachineData:
     """Recupera tutti i dati della macchina"""
     client = MinipackTorreOPCUA(OPC_SERVER, OPC_USERNAME, OPC_PASSWORD)
+
+    ALARM_MESSAGES = {
+        1: "EMERGENZA ATTIVA",
+        2: "RIPARI APERTI",
+        3: "BYPASS SICUREZZA RIPARI",
+        6: "ALTEZZA MASSIMA TRIANGOLO",
+        10: "MACCHINA IN RISCALDAMENTO",
+        11: "AVVOLGITORE PIENO",
+        12: "SVOLGITORE: BOBINA IN ESAURIMENTO",
+        13: "SVOLGITORE: FILM ESAURITO",
+        14: "NASTRI NON DISTANZIATI",
+        15: "ERRORE CIRCUITO TEMPERATURE",
+        17: "SVOLGITORE: TIMEOUT",
+        20: "INVERTER: ERRORE INVERTER",
+        22: "MANUTENZIONE IN CORSO",
+        23: "NASTRO DI CARICO VUOTO",
+        25: "NUMERO LOTTO RAGGIUNTO",
+        26: "AVVOLGITORE: ROTTURA FILM",
+        27: "FOTOCELLULE TIMEOUT",
+        29: "AVVICINAMENTO NASTRO: ERRORE INVERTER",
+        33: "CENTER SEALING: FINECORSA ALTO",
+        34: "SVOLGITORE FUORI POSIZIONE",
+        35: "TRIANGOLO: ERRORE MOVIMENTAZIONE",
+        41: "HOMING: TIMEOUT",
+        42: "HOMING: PROCEDURA FALLITA",
+        46: "CENTER SEALING: ERRORE MOVIMENTAZIONE",
+        48: "ERRORE STAMPANTE",
+        49: "CENTER SEALING: BLOCCO MOVIMENTO",
+        50: "TRIANGOLO: BLOCCO MOVIMENTO",
+        51: "NASTRO DI CARICO: NON DISPONIBILE",
+        52: "NASTRO DI SCARICO: NON DISPONIBILE",
+        54: "BARRA SALDANTE: TIMEOUT MOVIMENTO",
+        55: "BARRA SALDANTE: PRESENZA OSTACOLO",
+        73: "LINEA A VALLE: MANCA CONSENSO DA LINEA",
+        74: "BARRA SALDANTE NODO CAN ASSENTE",
+        75: "INVERTER NODO CAN ASSENTE",
+        76: "CXCAN1 NODO CAN ASSENTE",
+        77: "CXCAN2 NODO CAN ASSENTE",
+        78: "ALLARME BARRA SALDANTE",
+        79: "AVVICINAMENTO NASTRO: TIMEOUT",
+        80: "INVERTER: TIMEOUT START",
+    }
     
     try:
         await client.connect()
@@ -239,7 +282,15 @@ async def get_machine_data() -> MachineData:
             status_text = "SCONOSCIUTO"
         
         # Recupera allarmi
-        alarms = await client.get_allarmi_attivi()
+        alarm_codes = await client.get_allarmi_attivi()
+
+        alarms = [
+            AlarmInfo(
+                code=code,
+                message=ALARM_MESSAGES.get(code, f"A{code:03d} - Allarme sconosciuto")
+            )
+            for code in alarm_codes
+        ]
         
         # Componi risposta
         data = MachineData(
@@ -500,6 +551,83 @@ async def create_ricetta(ricetta: RicettaCreate):
         nome=created.nome,
         descrizione=created.descrizione
     )
+
+@app.post("/commesse/{commessa_id}/interrompi")
+async def interrompi_commessa(commessa_id: int, motivo: Optional[str] = None):
+    """
+    Interrompe una commessa in lavorazione
+    
+    Questo endpoint permette di fermare una commessa che è già in produzione.
+    NOTA: Non ferma fisicamente la macchina (deve essere fermata manualmente dall'operatore).
+    Cambia solo lo stato della commessa nel sistema per liberare il gestionale.
+    
+    Args:
+        commessa_id: ID della commessa da interrompere
+        motivo: Motivo dell'interruzione (opzionale)
+    
+    Returns:
+        Messaggio di conferma
+    """
+    db = DatabaseRepository()
+    await db.connect()
+    
+    commessa = await db.get_commessa(commessa_id)
+    if not commessa:
+        await db.disconnect()
+        raise HTTPException(status_code=404, detail="Commessa non trovata")
+    
+    try:
+        # Aggiorna stato a "annullata" con informazioni sull'interruzione
+        dati_extra = {
+            'interruzione': datetime.now().isoformat(),
+            'quantita_prodotta_al_momento': commessa.quantita_prodotta,
+            'motivo': motivo or 'Interruzione manuale',
+            'tipo_terminazione': 'interrotta_durante_lavorazione'
+        }
+        
+        await db.update_stato_commessa(
+            commessa_id,
+            'annullata',  # Usiamo 'annullata' per indicare terminazione anticipata
+            dati_extra
+        )
+        
+        # Registra evento di interruzione
+        await db.insert_evento_commessa(
+            commessa_id=commessa_id,
+            tipo_evento="INTERRUZIONE_LAVORAZIONE",
+            dettagli=json.dumps({
+                'quantita_prodotta': commessa.quantita_prodotta,
+                'quantita_richiesta': commessa.quantita_richiesta,
+                'motivo': motivo or 'Interruzione manuale'
+            })
+        )
+        
+        # Log evento macchina
+        await db.insert_evento_macchina(
+            tipo_evento="COMMESSA_INTERROTTA",
+            stato_macchina="IN_LAVORAZIONE",  # Lo stato fisico della macchina
+            lavorazione_id=commessa_id,
+            dati={
+                'commessa_id': commessa_id,
+                'motivo': motivo or 'Interruzione manuale',
+                'pezzi_prodotti': commessa.quantita_prodotta
+            }
+        )
+        
+        await db.disconnect()
+        
+        return {
+            "success": True,
+            "message": f"Commessa interrotta. Prodotti: {commessa.quantita_prodotta}/{commessa.quantita_richiesta} pezzi",
+            "note": "ATTENZIONE: La macchina deve essere fermata manualmente dall'operatore. Il sistema è ora libero per caricare una nuova ricetta."
+        }
+        
+    except Exception as e:
+        await db.disconnect()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Errore durante l'interruzione: {str(e)}"
+        )
 
 
 @app.delete("/ricette/{ricetta_id}")

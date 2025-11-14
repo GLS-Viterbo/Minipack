@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Package, 
-  Play, 
-  XCircle, 
-  CheckCircle2, 
+import {
+  Package,
+  Play,
+  XCircle,
+  CheckCircle2,
   Clock,
   AlertTriangle,
   RefreshCw,
   Loader,
-  TrendingUp
+  TrendingUp,
+  Square
 } from 'lucide-react';
 import './GestioneCommesse.css';
 
@@ -29,14 +30,14 @@ export function GestioneCommesse() {
   const loadCommesse = async () => {
     try {
       let url = '/api/commesse';
-      
+
       if (filtroStato !== 'tutte') {
         url += `?stato=${filtroStato}`;
       }
 
       const response = await fetch(url);
       if (!response.ok) throw new Error('Errore caricamento commesse');
-      
+
       const data = await response.json();
       setCommesse(data);
       setLoading(false);
@@ -91,6 +92,53 @@ export function GestioneCommesse() {
 
       await loadCommesse();
       alert('Commessa annullata');
+    } catch (err) {
+      setError(err.message);
+      alert(`Errore: ${err.message}`);
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
+  const interrompiCommessa = async (commessaId) => {
+    const motivo = prompt(
+      'Inserisci il motivo dell\'interruzione (opzionale):\n\n' +
+      'ATTENZIONE: Questa operazione interrompe la commessa nel sistema ma ' +
+      'NON ferma fisicamente la macchina. L\'operatore deve fermare manualmente la macchina.'
+    );
+
+    // Se l'utente clicca annulla nel prompt, motivo sarà null
+    // Se l'utente conferma senza scrivere nulla, motivo sarà stringa vuota
+    if (motivo === null) {
+      return; // L'utente ha annullato
+    }
+
+    setOperationLoading(commessaId);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/commesse/${commessaId}/interrompi`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ motivo: motivo || 'Interruzione manuale' })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Errore interruzione commessa');
+      }
+
+      const result = await response.json();
+
+      await loadCommesse();
+
+      alert(
+        `✓ ${result.message}\n\n` +
+        `⚠️ ${result.note}`
+      );
+
     } catch (err) {
       setError(err.message);
       alert(`Errore: ${err.message}`);
@@ -154,7 +202,7 @@ export function GestioneCommesse() {
           <Package size={28} />
           <h2>Gestione Commesse</h2>
         </div>
-        
+
         <button onClick={loadCommesse} className="btn btn-refresh">
           <RefreshCw size={18} />
           Aggiorna
@@ -207,20 +255,20 @@ export function GestioneCommesse() {
                     <span>Commessa #{commessa.id}</span>
                   </div>
                   <div className="badges">
-                    <span 
+                    <span
                       className="badge badge-priorita"
-                      style={{ 
+                      style={{
                         backgroundColor: prioritaStyle.bg,
-                        color: prioritaStyle.color 
+                        color: prioritaStyle.color
                       }}
                     >
                       {commessa.priorita.toUpperCase()}
                     </span>
-                    <span 
+                    <span
                       className="badge badge-stato"
-                      style={{ 
+                      style={{
                         backgroundColor: statoStyle.bg,
-                        color: statoStyle.color 
+                        color: statoStyle.color
                       }}
                     >
                       <StatusIcon size={14} />
@@ -244,12 +292,12 @@ export function GestioneCommesse() {
                       <strong>{commessa.quantita_prodotta}</strong> / {commessa.quantita_richiesta} pezzi
                     </span>
                   </div>
-                  
+
                   {/* Barra progresso */}
                   {commessa.stato !== 'in_attesa' && (
                     <div className="progresso-container">
                       <div className="progresso-bar">
-                        <div 
+                        <div
                           className="progresso-fill"
                           style={{ width: `${progresso}%` }}
                         >
@@ -301,17 +349,47 @@ export function GestioneCommesse() {
                   )}
 
                   {commessa.stato === 'ricetta_caricata' && (
-                    <div className="status-message success">
-                      <CheckCircle2 size={16} />
-                      <span>Ricetta caricata - Pronta per l'avvio</span>
-                    </div>
+                    <>
+                      <div className="status-message success">
+                        <CheckCircle2 size={16} />
+                        <span>Pronta per l'avvio</span>
+                      </div>
+                      <button
+                        className="btn btn-danger"
+                        onClick={() => interrompiCommessa(commessa.id)}
+                        disabled={operationLoading === commessa.id}
+                        title="Interrompe la commessa (la macchina va fermata manualmente)"
+                      >
+                        {operationLoading === commessa.id ? (
+                          <Loader className="spin" size={16} />
+                        ) : (
+                          <Square size={16} />
+                        )}
+                        Interrompi
+                      </button>
+                    </>
                   )}
 
                   {commessa.stato === 'in_lavorazione' && (
-                    <div className="status-message info">
-                      <TrendingUp size={16} />
-                      <span>Lavorazione in corso...</span>
-                    </div>
+                    <>
+                      <div className="status-message info">
+                        <TrendingUp size={16} />
+                        <span>Lavorazione in corso...</span>
+                      </div>
+                      <button
+                        className="btn btn-danger"
+                        onClick={() => interrompiCommessa(commessa.id)}
+                        disabled={operationLoading === commessa.id}
+                        title="Interrompe la commessa (la macchina va fermata manualmente)"
+                      >
+                        {operationLoading === commessa.id ? (
+                          <Loader className="spin" size={16} />
+                        ) : (
+                          <Square size={16} />
+                        )}
+                        Interrompi
+                      </button>
+                    </>
                   )}
 
                   {commessa.stato === 'completata' && (

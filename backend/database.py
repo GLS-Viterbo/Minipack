@@ -549,22 +549,20 @@ class DatabaseRepository:
         # ====================================================================
         # GESTIONE ALLARMI
         # ====================================================================
-        allarmi_attuali = set()
-        for i in range(9):
-            allarme = machine_data.get('active_alarms', {}).get(f'alarm_{i+1}')
-            if allarme and allarme.get('code', 0) != 0:
-                codice = allarme['code']
-                allarmi_attuali.add(codice)
-                
-                # Nuovo allarme
-                if codice not in self._allarmi_attivi:
-                    await self.start_allarme(codice, lavorazione_id)
-                    await self.insert_evento_macchina(
-                        tipo_evento="ALLARME_INIZIO",
-                        stato_macchina=stato_attuale,
-                        lavorazione_id=lavorazione_id,
-                        dati={'codice_allarme': codice}
-                    )
+        # active_alarms è ora una semplice lista di codici: [2, 3, 34]
+        allarmi_attuali = set(machine_data.get('active_alarms', []))
+        
+        # Nuovi allarmi
+        for codice in allarmi_attuali:
+            if codice not in self._allarmi_attivi:
+                await self.start_allarme(codice, lavorazione_id)
+                await self.insert_evento_macchina(
+                    tipo_evento="ALLARME_INIZIO",
+                    stato_macchina=stato_attuale,
+                    lavorazione_id=lavorazione_id,
+                    dati={'codice_allarme': codice}
+                )
+                print(f"🚨 Nuovo allarme rilevato: {codice}")
         
         # Chiudi allarmi risolti
         allarmi_risolti = set(self._allarmi_attivi.keys()) - allarmi_attuali
@@ -576,6 +574,7 @@ class DatabaseRepository:
                 lavorazione_id=lavorazione_id,
                 dati={'codice_allarme': codice}
             )
+            print(f"✅ Allarme risolto: {codice}")
         
         # ====================================================================
         # PRIMO AVVIO - INIZIALIZZA STATO
@@ -610,6 +609,7 @@ class DatabaseRepository:
                     'stato_nuovo': stato_attuale
                 }
             )
+            print(f"🔄 Cambio stato: {self._ultimo_stato['stato']} → {stato_attuale}")
         
         if ricetta_cambiata:
             await self.insert_evento_macchina(
@@ -621,6 +621,7 @@ class DatabaseRepository:
                     'ricetta_nuova': ricetta_corrente
                 }
             )
+            print(f"📋 Cambio ricetta: {self._ultimo_stato['ricetta']} → {ricetta_corrente}")
         
         # ====================================================================
         # AGGIORNA STATO PRECEDENTE

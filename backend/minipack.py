@@ -291,6 +291,9 @@ class MinipackTorreOPCUA:
                 print("ERRORE: La macchina deve essere in stop automatico")
                 return False
             
+            # 1.5. Cambia contatore parziale
+            await self.set_contatore_lotto(0)
+            
             # 2. Imposta la ricetta da caricare
             await self.set_ricetta_da_caricare(nome_ricetta)
             print(f"Ricetta impostata: {nome_ricetta}")

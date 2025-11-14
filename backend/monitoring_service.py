@@ -104,11 +104,11 @@ class MonitoringService:
                 # Recupera tutti i dati dalla macchina
                 machine_data = await self._get_machine_data()
                 
-                # # Aggiorna il database con monitoraggio automatico
-                # await self.db_repo.monitor_machine_state(
-                #     machine_data,
-                #     lavorazione_id=self.current_lavorazione_id
-                # )
+                # Aggiorna il database con monitoraggio automatico
+                await self.db_repo.process_machine_state(
+                    machine_data,
+                    lavorazione_id=self.current_lavorazione_id
+                )
                 
                 # Disconnetti
                 await self.opc_client.disconnect()
@@ -145,24 +145,25 @@ class MonitoringService:
         # Recupera status flags
         status_flags = await self.opc_client.get_status_flags()
         
-        # Recupera allarmi
+        # Recupera allarmi come lista di codici
         alarm_codes = await self.opc_client.get_allarmi_attivi()
-        alarms = [{'code': code} for code in alarm_codes]
         
         # Costruisce dizionario dati
         return {
             'timestamp': datetime.now().isoformat(),
             'connected': True,
-            'status': status_flags,
-            'alarms': alarms,
-            'recipe': await self.opc_client.get_ricetta_in_lavorazione(),
-            'total_pieces': int(await self.opc_client.get_contapezzi_vita()),
-            'partial_pieces': int(await self.opc_client.get_contapezzi_parziale()),
-            'batch_counter': int(await self.opc_client.get_contatore_lotto()),
-            'lateral_bar_temp': await self.opc_client.get_temperatura_barra_laterale(),
-            'frontal_bar_temp': await self.opc_client.get_temperatura_barra_frontale(),
-            'triangle_position': await self.opc_client.get_posizione_triangolo(),
-            'center_sealing_position': await self.opc_client.get_posizione_center_sealing(),
+            'status_flags': status_flags,  # Cambiato da 'status' a 'status_flags'
+            'active_alarms': alarm_codes,  # Lista semplice di codici: [2, 3, 34]
+            'production_data': {
+                'current_recipe': await self.opc_client.get_ricetta_in_lavorazione(),
+                'total_pieces': int(await self.opc_client.get_contapezzi_vita()),
+                'partial_pieces': int(await self.opc_client.get_contapezzi_parziale()),
+                'batch_counter': int(await self.opc_client.get_contatore_lotto()),
+                'lateral_bar_temp': await self.opc_client.get_temperatura_barra_laterale(),
+                'frontal_bar_temp': await self.opc_client.get_temperatura_barra_frontale(),
+                'triangle_position': await self.opc_client.get_posizione_triangolo(),
+                'center_sealing_position': await self.opc_client.get_posizione_center_sealing(),
+            }
         }
 
     # ========================================================================
