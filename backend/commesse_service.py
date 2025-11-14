@@ -191,6 +191,7 @@ class CommesseService:
             await client.connect()
             
             # Carica ricetta (procedura OPC UA completa)
+            # Questa funzione azzera già il contapezzi parziale internamente
             success = await client.carica_ricetta(ricetta.nome, timeout=120.0)
             
             if not success:
@@ -202,11 +203,15 @@ class CommesseService:
                 )
                 return False, "Caricamento ricetta fallito", {}
             
-            # Imposta contatore lotto
+            # Imposta contatore lotto (SOGLIA TARGET)
+            # La macchina si fermerà quando il contapezzi parziale raggiunge questa soglia
             await client.set_contatore_lotto(commessa.quantita_richiesta)
             
             # Verifica che sia stato impostato correttamente
             contatore_impostato = await client.get_contatore_lotto()
+            
+            # Verifica che il contapezzi parziale sia stato azzerato
+            contapezzi_parziale = await client.get_contapezzi_parziale()
             
             await client.disconnect()
             
@@ -216,8 +221,9 @@ class CommesseService:
                 'ricetta_caricata',
                 {
                     'ricetta': ricetta.nome,
-                    'contatore_lotto': contatore_impostato,
-                    'quantita_richiesta': commessa.quantita_richiesta
+                    'contatore_lotto_soglia': contatore_impostato,
+                    'quantita_richiesta': commessa.quantita_richiesta,
+                    'contapezzi_parziale_iniziale': contapezzi_parziale
                 }
             )
             
@@ -228,18 +234,20 @@ class CommesseService:
                 lavorazione_id=commessa_id,
                 dati={
                     'ricetta': ricetta.nome,
-                    'contatore_lotto': contatore_impostato,
-                    'commessa_id': commessa_id
+                    'contatore_lotto_soglia': contatore_impostato,
+                    'commessa_id': commessa_id,
+                    'contapezzi_parziale': contapezzi_parziale
                 }
             )
             
             details = {
                 'ricetta_nome': ricetta.nome,
-                'contatore_lotto': contatore_impostato,
-                'quantita_richiesta': commessa.quantita_richiesta
+                'contatore_lotto_soglia': contatore_impostato,
+                'quantita_richiesta': commessa.quantita_richiesta,
+                'contapezzi_parziale_iniziale': contapezzi_parziale
             }
             
-            return True, "Ricetta caricata e contatore impostato con successo", details
+            return True, "Ricetta caricata e contatore lotto impostato con successo", details
             
         except Exception as e:
             await client.disconnect()
@@ -274,21 +282,23 @@ class CommesseService:
         return True, "Commessa avviata"
     
     # ========================================================================
-    # MONITORAGGIO E AGGIORNAMENTO
+    # MONITORAGGIO E AGGIORNAMENTO - CORRETTO
     # ========================================================================
     
     async def aggiorna_progresso_commessa(
         self,
         commessa_id: int,
-        contatore_lotto_attuale: int
+        contapezzi_parziale_attuale: int
     ) -> bool:
         """
-        Aggiorna il progresso di una commessa in base al contatore lotto
+        Aggiorna il progresso di una commessa in base al contapezzi parziale
         Se raggiunge la quantità richiesta, completa la commessa
+        
+        CORREZIONE: Usa il contapezzi parziale (che incrementa) invece del contatore lotto (che è fisso)
         
         Args:
             commessa_id: ID commessa
-            contatore_lotto_attuale: Valore attuale del contatore lotto dalla macchina
+            contapezzi_parziale_attuale: Valore attuale del contapezzi parziale dalla macchina
             
         Returns:
             True se la commessa è stata completata
@@ -297,12 +307,15 @@ class CommesseService:
         if not commessa:
             return False
         
-        # Calcola quantità prodotta
-        quantita_prodotta = commessa.quantita_richiesta - contatore_lotto_attuale
+        # CORREZIONE: La quantità prodotta è direttamente il contapezzi parziale
+        # Non serve sottrarre nulla perché il contapezzi parziale parte da 0 e incrementa
+        quantita_prodotta = int(contapezzi_parziale_attuale)
+        
+        # Previeni valori negativi (safety check)
         if quantita_prodotta < 0:
             quantita_prodotta = 0
         
-        # Aggiorna quantità
+        # Aggiorna quantità nel database
         await self.db.update_quantita_prodotta(commessa_id, quantita_prodotta)
         
         # Verifica se completata
@@ -405,7 +418,7 @@ class CommesseService:
 
 
 # ============================================================================
-# TASK DI MONITORAGGIO BACKGROUND
+# TASK DI MONITORAGGIO BACKGROUND - CORRETTO
 # ============================================================================
 
 class CommesseMonitoringTask:
@@ -459,8 +472,8 @@ class CommesseMonitoringTask:
                     
                     await client.connect()
                     
-                    # Leggi contatore lotto
-                    contatore_lotto = await client.get_contatore_lotto()
+                    # CORREZIONE: Leggi il contapezzi parziale invece del contatore lotto
+                    contapezzi_parziale = await client.get_contapezzi_parziale()
                     
                     # Verifica se macchina in START (automatico o manuale)
                     status_flags = await client.get_status_flags()
@@ -474,12 +487,13 @@ class CommesseMonitoringTask:
                     # Se commessa è 'ricetta_caricata' e macchina parte, avvia
                     if commessa_attiva.stato == 'ricetta_caricata' and macchina_attiva:
                         await self.commesse_service.avvia_commessa(commessa_attiva.id)
+                        print(f"🚀 Commessa {commessa_attiva.id} avviata (macchina in START)")
                     
-                    # Aggiorna progresso
+                    # Aggiorna progresso usando il contapezzi parziale
                     if commessa_attiva.stato == 'in_lavorazione':
                         completata = await self.commesse_service.aggiorna_progresso_commessa(
                             commessa_attiva.id,
-                            contatore_lotto
+                            int(contapezzi_parziale)
                         )
                         
                         if completata:
@@ -503,4 +517,4 @@ class CommesseMonitoringTask:
             self.running = False
             if self.task:
                 self.task.cancel()
-            print("⏹️  Monitoraggio commesse fermato")
+            print("ℹ️  Monitoraggio commesse fermato")

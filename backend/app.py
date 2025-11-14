@@ -11,6 +11,8 @@ from datetime import datetime, date
 import asyncio
 from contextlib import asynccontextmanager
 import json
+from fastapi.responses import StreamingResponse, Response
+from export_service import ExportService
 
 from minipack import MinipackTorreOPCUA
 from database import DatabaseRepository, Cliente, Ricetta, Commessa
@@ -863,6 +865,141 @@ async def get_statistiche_generali():
         "timestamp": datetime.now().isoformat()
     }
 
+
+# ============================================================================
+# ENDPOINT EXPORT E REPORTING
+# ============================================================================
+
+@app.get("/export/produzione")
+async def export_dati_produzione(
+    data_inizio: str,
+    data_fine: str,
+    formato: str = "json"
+):
+    """
+    Esporta dati di produzione per periodo specificato
+    
+    Query params:
+        data_inizio: Data inizio periodo (YYYY-MM-DD)
+        data_fine: Data fine periodo (YYYY-MM-DD)
+        formato: Formato export (json, csv, excel)
+        
+    Returns:
+        File nel formato richiesto
+    """
+    db = DatabaseRepository()
+    await db.connect()
+    
+    export_service = ExportService(db)
+    
+    try:
+        if formato.lower() == "csv":
+            csv_data = await export_service.export_csv(data_inizio, data_fine)
+            await db.disconnect()
+            
+            return Response(
+                content=csv_data,
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": f"attachment; filename=produzione_{data_inizio}_{data_fine}.csv"
+                }
+            )
+        
+        elif formato.lower() == "excel":
+            excel_data = await export_service.export_excel(data_inizio, data_fine)
+            await db.disconnect()
+            
+            return StreamingResponse(
+                excel_data,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={
+                    "Content-Disposition": f"attachment; filename=produzione_{data_inizio}_{data_fine}.xlsx"
+                }
+            )
+        
+        elif formato.lower() == "json":
+            json_data = await export_service.export_json(data_inizio, data_fine, include_kpi=True)
+            await db.disconnect()
+            
+            return Response(
+                content=json_data,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": f"attachment; filename=produzione_{data_inizio}_{data_fine}.json"
+                }
+            )
+        
+        else:
+            await db.disconnect()
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Formato '{formato}' non supportato. Usare: json, csv, excel"
+            )
+    
+    except Exception as e:
+        await db.disconnect()
+        raise HTTPException(status_code=500, detail=f"Errore durante export: {str(e)}")
+
+
+@app.get("/report/kpi")
+async def get_kpi_report(
+    data_inizio: str,
+    data_fine: str
+):
+    """
+    Recupera report KPI per il periodo specificato
+    
+    Query params:
+        data_inizio: Data inizio periodo (YYYY-MM-DD)
+        data_fine: Data fine periodo (YYYY-MM-DD)
+        
+    Returns:
+        JSON con KPI calcolati
+    """
+    db = DatabaseRepository()
+    await db.connect()
+    
+    export_service = ExportService(db)
+    
+    try:
+        kpi = await export_service.calcola_kpi(data_inizio, data_fine)
+        await db.disconnect()
+        return kpi
+    
+    except Exception as e:
+        await db.disconnect()
+        raise HTTPException(status_code=500, detail=f"Errore calcolo KPI: {str(e)}")
+
+
+@app.get("/report/dati-completi")
+async def get_dati_completi_produzione(
+    data_inizio: str,
+    data_fine: str
+):
+    """
+    Recupera tutti i dati di produzione per il periodo specificato
+    Include: commesse, allarmi, eventi
+    
+    Query params:
+        data_inizio: Data inizio periodo (YYYY-MM-DD)
+        data_fine: Data fine periodo (YYYY-MM-DD)
+        
+    Returns:
+        JSON con dati completi
+    """
+    db = DatabaseRepository()
+    await db.connect()
+    
+    export_service = ExportService(db)
+    
+    try:
+        dati = await export_service.get_dati_produzione(data_inizio, data_fine)
+        await db.disconnect()
+        return dati
+    
+    except Exception as e:
+        await db.disconnect()
+        raise HTTPException(status_code=500, detail=f"Errore recupero dati: {str(e)}")
 
 # ============================================================================
 # AVVIO APPLICAZIONE
