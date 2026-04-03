@@ -10,13 +10,26 @@ import {
   RefreshCw,
   Clock,
   CheckCircle,
-  BarChart3
+  BarChart3,
+  List,
+  Layers
 } from 'lucide-react';
 import { StatsApiService } from '../services/statsApi';
+import { SessioniApiService } from '../services/sessioniApi';
 import { KPICard } from '../components/KPICard/KPICard';
 import './StatsPage.css';
 
+function formatDuration(seconds) {
+  if (!seconds) return '—';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 export function StatsPage() {
+  const [tab, setTab] = useState('kpi');
+
   const [dataInizio, setDataInizio] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 30);
@@ -25,14 +38,19 @@ export function StatsPage() {
 
   const [dataFine, setDataFine] = useState(new Date().toISOString().split('T')[0]);
 
+  // KPI state
   const [kpi, setKpi] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Sessioni state
+  const [sessioni, setSessioni] = useState(null);
+  const [sessioniLoading, setSessioniLoading] = useState(false);
+  const [sessioniError, setSessioniError] = useState(null);
+
   const loadKPI = async () => {
     setLoading(true);
     setError(null);
-
     try {
       const data = await StatsApiService.getKPI(dataInizio, dataFine);
       setKpi(data);
@@ -44,6 +62,19 @@ export function StatsPage() {
     }
   };
 
+  const loadSessioni = async () => {
+    setSessioniLoading(true);
+    setSessioniError(null);
+    try {
+      const data = await SessioniApiService.getSessioni({ data_inizio: dataInizio, data_fine: dataFine, limit: 100 });
+      setSessioni(data);
+    } catch (err) {
+      setSessioniError(err.message);
+    } finally {
+      setSessioniLoading(false);
+    }
+  };
+
   return (
     <div className="stats-page">
       <div className="container">
@@ -52,6 +83,24 @@ export function StatsPage() {
           <p className="page-subtitle">
             Analizza le performance di produzione e scarica i report
           </p>
+        </div>
+
+        {/* Tab switcher */}
+        <div className="stats-tabs">
+          <button
+            className={`stats-tab ${tab === 'kpi' ? 'active' : ''}`}
+            onClick={() => setTab('kpi')}
+          >
+            <BarChart3 size={16} />
+            KPI
+          </button>
+          <button
+            className={`stats-tab ${tab === 'sessioni' ? 'active' : ''}`}
+            onClick={() => setTab('sessioni')}
+          >
+            <List size={16} />
+            Sessioni
+          </button>
         </div>
 
         {/* Form Selezione Periodo */}
@@ -85,28 +134,48 @@ export function StatsPage() {
               />
             </div>
             <div className="form-group">
-              <button
-                className="btn btn-primary"
-                onClick={loadKPI}
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw size={18} className="rotating" />
-                    Caricamento...
-                  </>
-                ) : (
-                  <>
-                    <BarChart3 size={18} />
-                    Calcola KPI
-                  </>
-                )}
-              </button>
+              {tab === 'kpi' ? (
+                <button
+                  className="btn btn-primary"
+                  onClick={loadKPI}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <RefreshCw size={18} className="rotating" />
+                      Caricamento...
+                    </>
+                  ) : (
+                    <>
+                      <BarChart3 size={18} />
+                      Calcola KPI
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  onClick={loadSessioni}
+                  disabled={sessioniLoading}
+                >
+                  {sessioniLoading ? (
+                    <>
+                      <RefreshCw size={18} className="rotating" />
+                      Caricamento...
+                    </>
+                  ) : (
+                    <>
+                      <List size={18} />
+                      Carica Sessioni
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Bottoni Export */}
-          {kpi && (
+          {/* Bottoni Export (solo tab KPI) */}
+          {tab === 'kpi' && kpi && (
             <div className="export-buttons">
               <button
                 className="btn btn-success"
@@ -141,8 +210,82 @@ export function StatsPage() {
           </div>
         )}
 
+        {/* Vista Sessioni */}
+        {tab === 'sessioni' && (
+          <>
+            {sessioniError && (
+              <div className="error-alert">
+                <AlertTriangle size={20} />
+                <div><strong>Errore:</strong> {sessioniError}</div>
+                <button className="btn-retry" onClick={loadSessioni}>Riprova</button>
+              </div>
+            )}
+
+            {sessioni && (
+              <div className="sessioni-table-wrapper">
+                {sessioni.length === 0 ? (
+                  <div className="empty-state">
+                    <List size={48} className="empty-icon" />
+                    <h3>Nessuna sessione nel periodo</h3>
+                    <p>Non sono state rilevate sessioni di produzione nel periodo selezionato.</p>
+                  </div>
+                ) : (
+                  <table className="sessioni-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Ricetta</th>
+                        <th>Inizio</th>
+                        <th>Durata</th>
+                        <th>Pezzi</th>
+                        <th>Target</th>
+                        <th>Origine</th>
+                        <th>Stato</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sessioni.map((s) => (
+                        <tr key={s.id}>
+                          <td className="col-id">{s.id}</td>
+                          <td className="col-ricetta">{s.ricetta_nome}</td>
+                          <td className="col-data">
+                            {new Date(s.timestamp_inizio).toLocaleString('it-IT', {
+                              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                            })}
+                          </td>
+                          <td>{formatDuration(s.durata_secondi)}</td>
+                          <td className="col-pezzi">{s.quantita_prodotta.toLocaleString()}</td>
+                          <td>{s.contatore_lotto > 0 ? s.contatore_lotto.toLocaleString() : '—'}</td>
+                          <td>
+                            <span className={`origine-badge ${s.origine}`}>
+                              {s.origine === 'pannello' ? 'Pannello' : `Commessa #${s.commessa_id}`}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={`stato-badge ${s.stato}`}>
+                              {s.stato === 'attiva' ? '● Attiva' : 'Chiusa'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+            {!sessioni && !sessioniLoading && !sessioniError && (
+              <div className="empty-state">
+                <List size={64} className="empty-icon" />
+                <h3>Seleziona un periodo</h3>
+                <p>Scegli le date e clicca "Carica Sessioni" per vedere le sessioni rilevate automaticamente.</p>
+              </div>
+            )}
+          </>
+        )}
+
         {/* KPI Dashboard */}
-        {kpi && (
+        {tab === 'kpi' && kpi && (
           <div className="kpi-dashboard">
             {/* Periodo */}
             <div className="stats-section">
@@ -257,6 +400,70 @@ export function StatsPage() {
               </div>
             </div>
 
+            {/* Sessioni Pannello */}
+            {kpi.sessioni_pannello?.totale > 0 && (
+              <div className="stats-section">
+                <h2 className="section-title">
+                  <Activity size={20} />
+                  Sessioni Pannello
+                  <span className="section-subtitle">produzione senza commessa attiva</span>
+                </h2>
+                <div className="kpi-grid-4">
+                  <KPICard
+                    title="Sessioni"
+                    value={kpi.sessioni_pannello.totale}
+                    icon={List}
+                    color="blue"
+                  />
+                  <KPICard
+                    title="Pezzi Pannello"
+                    value={kpi.sessioni_pannello.pezzi_prodotti.toLocaleString()}
+                    icon={Package}
+                    color="purple"
+                  />
+                  <KPICard
+                    title="Ore Pannello"
+                    value={kpi.sessioni_pannello.ore_produzione}
+                    unit="h"
+                    icon={Clock}
+                    color="orange"
+                  />
+                  <KPICard
+                    title="Pezzi/Ora Pannello"
+                    value={kpi.sessioni_pannello.pezzi_ora_medio}
+                    icon={Activity}
+                    color="green"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Totale Produzione */}
+            {kpi.totale?.pezzi_prodotti > 0 && (
+              <div className="stats-section stats-section-totale">
+                <h2 className="section-title">
+                  <Layers size={20} />
+                  Totale Produzione
+                  <span className="section-subtitle">commesse + pannello, senza doppio conteggio</span>
+                </h2>
+                <div className="kpi-grid-2">
+                  <KPICard
+                    title="Pezzi Totali"
+                    value={kpi.totale.pezzi_prodotti.toLocaleString()}
+                    icon={Package}
+                    color="blue"
+                  />
+                  <KPICard
+                    title="Ore Totali"
+                    value={kpi.totale.ore_produzione}
+                    unit="h"
+                    icon={Clock}
+                    color="green"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Tempi Produzione */}
             <div className="stats-section">
               <h2 className="section-title">
@@ -326,8 +533,8 @@ export function StatsPage() {
           </div>
         )}
 
-        {/* Stato Iniziale */}
-        {!kpi && !loading && !error && (
+        {/* Stato Iniziale KPI */}
+        {tab === 'kpi' && !kpi && !loading && !error && (
           <div className="empty-state">
             <BarChart3 size={64} className="empty-icon" />
             <h3>Seleziona un periodo</h3>

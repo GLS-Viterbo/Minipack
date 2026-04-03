@@ -1,0 +1,115 @@
+.sessione-attiva {
+  background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+  border: 1px solid rgba(0, 200, 150, 0.3);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  color: #e0f7f4;
+}
+
+.sessione-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.sessione-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #a0f0d8;
+}
+
+.sessione-icon-pulse {
+  color: #00e5a0;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.sessione-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.badge-pannello {
+  background: rgba(0, 229, 160, 0.15);
+  color: #00e5a0;
+  border: 1px solid rgba(0, 229, 160, 0.3);
+}
+
+.badge-commessa {
+  background: rgba(99, 179, 237, 0.15);
+  color: #63b3ed;
+  border: 1px solid rgba(99, 179, 237, 0.3);
+}
+
+.sessione-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sessione-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.sessione-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+  color: rgba(224, 247, 244, 0.7);
+}
+
+.sessione-stat svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
+.stat-value {
+  color: #e0f7f4;
+  font-weight: 500;
+}
+
+.stat-big {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #00e5a0;
+}
+
+.stat-target {
+  color: rgba(224, 247, 244, 0.5);
+  font-size: 0.85rem;
+}
+
+.sessione-progress {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sessione-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #00e5a0, #00b8d4);
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}

@@ -3,6 +3,7 @@ import { SystemInfo } from '../components/SystemInfo/SystemInfo';
 import { ProductionData } from '../components/ProductionData/ProductionData';
 import { TemperatureData } from '../components/TemperatureData/TemperatureData';
 import { PositionData } from '../components/PositionData/PositionData';
+import { SessioneAttiva } from '../components/SessioneAttiva/SessioneAttiva';
 
 export function DashboardPage({ data }) {
   return (
@@ -26,7 +27,9 @@ export function DashboardPage({ data }) {
       </div>
       
       <div className="main-section">
-        <ProductionData 
+        <SessioneAttiva />
+
+        <ProductionData
           recipe={data.recipe}
           totalPieces={data.total_pieces}
           partialPieces={data.partial_pieces}

@@ -143,3 +143,31 @@ CREATE INDEX IF NOT EXISTS idx_commesse_priorita ON commesse(priorita);
 CREATE INDEX IF NOT EXISTS idx_eventi_commessa_timestamp ON eventi_commessa(timestamp);
 CREATE INDEX IF NOT EXISTS idx_eventi_commessa_tipo ON eventi_commessa(tipo_evento);
 CREATE INDEX IF NOT EXISTS idx_eventi_commessa_id ON eventi_commessa(commessa_id);
+
+-- ============================================================================
+-- TABELLA SESSIONI PRODUZIONE (rilevamento automatico da pannello macchina)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS sessioni_produzione (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp_inizio    TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    timestamp_fine      TIMESTAMP,
+    durata_secondi      INTEGER,
+    ricetta_nome        VARCHAR(200) NOT NULL,
+    contapezzi_baseline INTEGER NOT NULL,
+    contapezzi_fine     INTEGER,
+    quantita_prodotta   INTEGER DEFAULT 0,
+    contatore_lotto     INTEGER DEFAULT 0,
+    origine             VARCHAR(20) DEFAULT 'pannello'
+                            CHECK(origine IN ('pannello', 'commessa')),
+    commessa_id         INTEGER,
+    stato               VARCHAR(20) DEFAULT 'attiva'
+                            CHECK(stato IN ('attiva', 'chiusa')),
+    note                TEXT,
+    FOREIGN KEY (commessa_id) REFERENCES commesse(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessioni_inizio  ON sessioni_produzione(timestamp_inizio);
+CREATE INDEX IF NOT EXISTS idx_sessioni_stato   ON sessioni_produzione(stato);
+CREATE INDEX IF NOT EXISTS idx_sessioni_attiva  ON sessioni_produzione(stato)
+    WHERE stato = 'attiva';

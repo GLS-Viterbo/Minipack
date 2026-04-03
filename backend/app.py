@@ -18,6 +18,7 @@ from minipack import MinipackTorreOPCUA
 from database import DatabaseRepository, Cliente, Ricetta, Commessa
 from monitoring_service import MonitoringService
 from commesse_service import CommesseService, CommesseMonitoringTask
+from session_service import SessionService
 
 # Configurazione server OPC UA
 OPC_SERVER = "opc.tcp://10.58.156.65:4840"
@@ -28,26 +29,33 @@ OPC_PASSWORD = "Minipack1"
 monitoring_service: Optional[MonitoringService] = None
 commesse_service: Optional[CommesseService] = None
 commesse_monitoring_task: Optional[CommesseMonitoringTask] = None
+session_service: Optional[SessionService] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestione lifecycle dell'applicazione"""
-    global monitoring_service, commesse_service, commesse_monitoring_task
-    
+    global monitoring_service, commesse_service, commesse_monitoring_task, session_service
+
     # Startup
     print("🚀 Avvio servizi...")
-    
+
     # Database
     db = DatabaseRepository()
     await db.connect()
-    
+
+    # Servizio sessioni di produzione (rilevamento automatico)
+    session_service = SessionService(db=db)
+    await session_service.initialize()
+    print("✅ Servizio sessioni produzione inizializzato")
+
     # Servizio monitoraggio macchina
     monitoring_service = MonitoringService(
         opc_server=OPC_SERVER,
         opc_username=OPC_USERNAME,
         opc_password=OPC_PASSWORD,
-        polling_interval=5
+        polling_interval=5,
+        session_service=session_service
     )
     await monitoring_service.start()
     print("✅ Servizio monitoraggio macchina avviato")
@@ -867,6 +875,65 @@ async def get_statistiche_generali():
 
 
 # ============================================================================
+# MODELLO SESSIONE + ENDPOINT SESSIONI DI PRODUZIONE
+# ============================================================================
+
+class SessioneResponse(BaseModel):
+    id: int
+    timestamp_inizio: str
+    timestamp_fine: Optional[str]
+    durata_secondi: Optional[int]
+    ricetta_nome: str
+    contapezzi_baseline: int
+    contapezzi_fine: Optional[int]
+    quantita_prodotta: int
+    contatore_lotto: int
+    origine: str
+    commessa_id: Optional[int]
+    stato: str
+    note: Optional[str]
+
+
+@app.get("/sessioni/attiva", response_model=SessioneResponse)
+async def get_sessione_attiva():
+    """Restituisce la sessione di produzione attualmente in corso, o 404."""
+    if not session_service:
+        raise HTTPException(status_code=503, detail="Servizio sessioni non disponibile")
+    sessione = await session_service.get_sessione_attiva()
+    if not sessione:
+        raise HTTPException(status_code=404, detail="Nessuna sessione attiva")
+    return SessioneResponse(**sessione)
+
+
+@app.get("/sessioni", response_model=List[SessioneResponse])
+async def get_sessioni(
+    limit: int = 50,
+    data_inizio: Optional[str] = None,
+    data_fine: Optional[str] = None
+):
+    """Lista sessioni di produzione rilevate automaticamente."""
+    if not session_service:
+        raise HTTPException(status_code=503, detail="Servizio sessioni non disponibile")
+    sessioni = await session_service.get_sessioni(
+        limit=limit,
+        data_inizio=data_inizio,
+        data_fine=data_fine
+    )
+    return [SessioneResponse(**s) for s in sessioni]
+
+
+@app.get("/sessioni/{sessione_id}", response_model=SessioneResponse)
+async def get_sessione(sessione_id: int):
+    """Dettaglio di una singola sessione."""
+    if not session_service:
+        raise HTTPException(status_code=503, detail="Servizio sessioni non disponibile")
+    sessione = await session_service.get_sessione(sessione_id)
+    if not sessione:
+        raise HTTPException(status_code=404, detail="Sessione non trovata")
+    return SessioneResponse(**sessione)
+
+
+# ============================================================================
 # ENDPOINT EXPORT E REPORTING
 # ============================================================================
 
@@ -1006,10 +1073,11 @@ async def get_dati_completi_produzione(
 # ============================================================================
 
 if __name__ == "__main__":
+    import os
     import uvicorn
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
-        port=8000,
+        port=int(os.getenv("BACKEND_PORT", "8000")),
         reload=True
     )

@@ -736,5 +736,104 @@ class DatabaseRepository:
                 "SELECT COUNT(*) FROM allarmi_storico WHERE timestamp_fine IS NULL"
             ) as cursor:
                 stats['num_allarmi_attivi'] = (await cursor.fetchone())[0]
-            
+
             return stats
+
+    # ========================================================================
+    # SESSIONI PRODUZIONE
+    # ========================================================================
+
+    async def create_sessione(
+        self,
+        ricetta_nome: str,
+        baseline: int,
+        contatore_lotto: int,
+        commessa_id: Optional[int] = None
+    ) -> int:
+        """Crea una nuova sessione di produzione, restituisce l'id."""
+        origine = 'commessa' if commessa_id else 'pannello'
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                """INSERT INTO sessioni_produzione
+                   (ricetta_nome, contapezzi_baseline, contatore_lotto, origine, commessa_id)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (ricetta_nome, baseline, contatore_lotto, origine, commessa_id)
+            ) as cursor:
+                sessione_id = cursor.lastrowid
+            await db.commit()
+        return sessione_id
+
+    async def update_sessione_quantita(self, sessione_id: int, quantita_prodotta: int) -> None:
+        """Aggiorna i pezzi prodotti nella sessione attiva."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE sessioni_produzione SET quantita_prodotta = ? WHERE id = ?",
+                (quantita_prodotta, sessione_id)
+            )
+            await db.commit()
+
+    async def close_sessione(
+        self,
+        sessione_id: int,
+        contapezzi_fine: int,
+        quantita_prodotta: int
+    ) -> None:
+        """Chiude una sessione impostando timestamp_fine e durata."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """UPDATE sessioni_produzione
+                   SET stato = 'chiusa',
+                       timestamp_fine = CURRENT_TIMESTAMP,
+                       durata_secondi = CAST(
+                           (julianday(CURRENT_TIMESTAMP) - julianday(timestamp_inizio)) * 86400 AS INTEGER
+                       ),
+                       contapezzi_fine = ?,
+                       quantita_prodotta = ?
+                   WHERE id = ?""",
+                (contapezzi_fine, quantita_prodotta, sessione_id)
+            )
+            await db.commit()
+
+    async def get_sessione_attiva(self) -> Optional[Dict[str, Any]]:
+        """Restituisce la sessione con stato='attiva', o None."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM sessioni_produzione WHERE stato = 'attiva' ORDER BY timestamp_inizio DESC LIMIT 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def get_sessione(self, sessione_id: int) -> Optional[Dict[str, Any]]:
+        """Restituisce una sessione per ID."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM sessioni_produzione WHERE id = ?", (sessione_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def get_sessioni(
+        self,
+        limit: int = 50,
+        data_inizio: Optional[str] = None,
+        data_fine: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Restituisce le sessioni, opzionalmente filtrate per periodo."""
+        query = "SELECT * FROM sessioni_produzione WHERE 1=1"
+        params: list = []
+        if data_inizio:
+            query += " AND date(timestamp_inizio) >= date(?)"
+            params.append(data_inizio)
+        if data_fine:
+            query += " AND date(timestamp_inizio) <= date(?)"
+            params.append(data_fine)
+        query += " ORDER BY timestamp_inizio DESC LIMIT ?"
+        params.append(limit)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]

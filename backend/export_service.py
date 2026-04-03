@@ -132,7 +132,29 @@ class ExportService:
             eventi_rows = await cursor.fetchall()
         
         eventi = [{'tipo': row[0], 'conteggio': row[1]} for row in eventi_rows]
-        
+
+        # Sessioni pannello nel periodo (senza commessa, per export)
+        async with self.db.db.execute(
+            """SELECT id, timestamp_inizio, timestamp_fine, durata_secondi,
+                      ricetta_nome, quantita_prodotta, contatore_lotto
+               FROM sessioni_produzione
+               WHERE commessa_id IS NULL AND stato = 'chiusa'
+                 AND date(timestamp_inizio) BETWEEN date(?) AND date(?)
+               ORDER BY timestamp_inizio DESC""",
+            (data_inizio, data_fine)
+        ) as cursor:
+            sessioni_rows = await cursor.fetchall()
+
+        sessioni_pannello = []
+        for row in sessioni_rows:
+            durata_ore = round(row[3] / 3600, 2) if row[3] else None
+            sessioni_pannello.append({
+                'id': row[0], 'timestamp_inizio': row[1], 'timestamp_fine': row[2],
+                'durata_ore': durata_ore, 'ricetta_nome': row[4],
+                'quantita_prodotta': row[5], 'contatore_lotto': row[6],
+                'pezzi_ora': round(row[5] / durata_ore, 2) if durata_ore and durata_ore > 0 else 0,
+            })
+
         return {
             'periodo': {
                 'inizio': data_inizio,
@@ -141,6 +163,7 @@ class ExportService:
             'commesse': commesse,
             'allarmi': allarmi,
             'eventi': eventi,
+            'sessioni_pannello': sessioni_pannello,
             'timestamp_export': datetime.now().isoformat()
         }
     
@@ -276,6 +299,23 @@ class ExportService:
             ore_allarmi_durante_commesse = round(row[0] / 3600, 2) if row[0] else 0
             ore_allarmi_fuori_commesse = round(row[1] / 3600, 2) if row[1] else 0
 
+        # Sessioni pannello senza commessa (nessun doppio conteggio)
+        async with self.db.db.execute(
+            """SELECT
+                COUNT(*),
+                COALESCE(SUM(quantita_prodotta), 0),
+                COALESCE(SUM(durata_secondi), 0)
+            FROM sessioni_produzione
+            WHERE commessa_id IS NULL
+              AND stato = 'chiusa'
+              AND date(timestamp_inizio) BETWEEN date(?) AND date(?)""",
+            (data_inizio, data_fine)
+        ) as cursor:
+            row_sess = await cursor.fetchone()
+            sessioni_pannello_count = row_sess[0]
+            pezzi_pannello = row_sess[1]
+            ore_pannello = round(row_sess[2] / 3600, 2)
+
         # Calcola giorni calendario
         giorni_periodo = (datetime.fromisoformat(data_fine) - datetime.fromisoformat(data_inizio)).days + 1
         
@@ -321,6 +361,16 @@ class ExportService:
                 'totale_occorrenze': totale_allarmi,
                 'tempo_fermo_totale_ore': round(tempo_fermo_allarmi_ore, 2),
                 'allarmi_per_giorno_lavorato': round(totale_allarmi / giorni_lavorati, 2) if giorni_lavorati > 0 else 0
+            },
+            'sessioni_pannello': {
+                'totale': sessioni_pannello_count,
+                'pezzi_prodotti': pezzi_pannello,
+                'ore_produzione': ore_pannello,
+                'pezzi_ora_medio': round(pezzi_pannello / ore_pannello, 2) if ore_pannello > 0 else 0,
+            },
+            'totale': {
+                'pezzi_prodotti': totale_pezzi_prodotti + pezzi_pannello,
+                'ore_produzione': round(tempo_produzione_ore + ore_pannello, 2),
             }
         }
     
@@ -374,7 +424,7 @@ class ExportService:
         writer.writerow([])
         writer.writerow(['ALLARMI NEL PERIODO'])
         writer.writerow(['Codice', 'Occorrenze', 'Durata Media (min)', 'Durata Totale (ore)'])
-        
+
         for a in dati['allarmi']:
             writer.writerow([
                 a['codice'],
@@ -382,7 +432,19 @@ class ExportService:
                 a['durata_media_minuti'],
                 a['durata_totale_ore']
             ])
-        
+
+        # Sezione sessioni pannello
+        if dati['sessioni_pannello']:
+            writer.writerow([])
+            writer.writerow(['SESSIONI PANNELLO (senza commessa)'])
+            writer.writerow(['ID', 'Ricetta', 'Inizio', 'Fine', 'Durata (ore)', 'Pezzi', 'Pezzi/Ora'])
+            for s in dati['sessioni_pannello']:
+                writer.writerow([
+                    s['id'], s['ricetta_nome'], s['timestamp_inizio'],
+                    s['timestamp_fine'] or '-', s['durata_ore'] or '-',
+                    s['quantita_prodotta'], s['pezzi_ora']
+                ])
+
         return output.getvalue()
     
     # ========================================================================
@@ -460,6 +522,32 @@ class ExportService:
 
         row += 1
 
+        # KPI Sessioni Pannello
+        ws_kpi[f'A{row}'] = "SESSIONI PANNELLO"
+        ws_kpi[f'A{row}'].font = header_font
+        ws_kpi[f'A{row}'].fill = header_fill
+        row += 1
+
+        for key, value in kpi['sessioni_pannello'].items():
+            ws_kpi[f'A{row}'] = key.replace('_', ' ').title()
+            ws_kpi[f'B{row}'] = value
+            row += 1
+
+        row += 1
+
+        # KPI Totale
+        ws_kpi[f'A{row}'] = "TOTALE (commesse + pannello)"
+        ws_kpi[f'A{row}'].font = header_font
+        ws_kpi[f'A{row}'].fill = header_fill
+        row += 1
+
+        for key, value in kpi['totale'].items():
+            ws_kpi[f'A{row}'] = key.replace('_', ' ').title()
+            ws_kpi[f'B{row}'] = value
+            row += 1
+
+        row += 1
+
         # Formatta colonne
         ws_kpi.column_dimensions['A'].width = 35
         ws_kpi.column_dimensions['B'].width = 20
@@ -527,7 +615,29 @@ class ExportService:
                 if cell.value:
                     max_length = max(max_length, len(str(cell.value)))
             ws_alarm.column_dimensions[column].width = max_length + 2
-        
+
+        # === FOGLIO 4: Sessioni Pannello ===
+        ws_sess = wb.create_sheet("Sessioni Pannello")
+
+        headers_sess = ['ID', 'Ricetta', 'Inizio', 'Fine', 'Durata (ore)', 'Pezzi Prodotti', 'Pezzi/Ora']
+        for col, header in enumerate(headers_sess, 1):
+            cell = ws_sess.cell(1, col, header)
+            cell.font = header_font
+            cell.fill = header_fill
+
+        for row_idx, s in enumerate(dati['sessioni_pannello'], 2):
+            ws_sess.cell(row_idx, 1, s['id'])
+            ws_sess.cell(row_idx, 2, s['ricetta_nome'])
+            ws_sess.cell(row_idx, 3, s['timestamp_inizio'])
+            ws_sess.cell(row_idx, 4, s['timestamp_fine'] or '-')
+            ws_sess.cell(row_idx, 5, s['durata_ore'] or '-')
+            ws_sess.cell(row_idx, 6, s['quantita_prodotta'])
+            ws_sess.cell(row_idx, 7, s['pezzi_ora'])
+
+        for col in ws_sess.columns:
+            max_length = max((len(str(cell.value)) for cell in col if cell.value), default=0)
+            ws_sess.column_dimensions[col[0].column_letter].width = min(max_length + 2, 30)
+
         # Salva in BytesIO
         output = BytesIO()
         wb.save(output)

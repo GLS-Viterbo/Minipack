@@ -4,10 +4,13 @@ Esegue polling della macchina e aggiorna il database automaticamente
 """
 
 import asyncio
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from datetime import datetime
 from database import DatabaseRepository
 from minipack import MinipackTorreOPCUA
+
+if TYPE_CHECKING:
+    from session_service import SessionService
 
 
 class MonitoringService:
@@ -21,7 +24,8 @@ class MonitoringService:
         opc_username: str,
         opc_password: str,
         db_path: str = "minipack_monitoring.db",
-        polling_interval: int = 5
+        polling_interval: int = 5,
+        session_service: Optional['SessionService'] = None
     ):
         """
         Inizializza il servizio di monitoraggio
@@ -40,10 +44,11 @@ class MonitoringService:
         
         self.db_repo = DatabaseRepository(db_path)
         self.opc_client: Optional[MinipackTorreOPCUA] = None
-        
+        self.session_service: Optional['SessionService'] = session_service
+
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        
+
         # ID lavorazione corrente (da impostare quando si avvia una produzione)
         self.current_lavorazione_id: Optional[int] = None
 
@@ -109,7 +114,14 @@ class MonitoringService:
                     machine_data,
                     lavorazione_id=self.current_lavorazione_id
                 )
-                
+
+                # Rilevamento automatico sessioni di produzione
+                if self.session_service:
+                    await self.session_service.process_poll(
+                        machine_data,
+                        commessa_attiva_id=self.current_lavorazione_id
+                    )
+
                 # Disconnetti
                 await self.opc_client.disconnect()
                 
