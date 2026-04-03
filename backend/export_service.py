@@ -5,6 +5,7 @@ Supporta formati: CSV, Excel, JSON
 
 import csv
 import json
+from collections import Counter
 from io import StringIO, BytesIO
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -216,20 +217,20 @@ class ExportService:
         }
 
     async def calcola_kpi(
-        self, 
-        data_inizio: str, 
+        self,
+        data_inizio: str,
         data_fine: str
     ) -> Dict[str, Any]:
         """
         Calcola i KPI principali per il periodo specificato
-        VERSIONE CORRETTA: usa tempo effettivo macchina, non periodo calendario
-        
+
         Returns:
             Dizionario con KPI calcolati
         """
         dati = await self.get_dati_produzione(data_inizio, data_fine)
         
         commesse = dati['commesse']
+        stato_counts = Counter(c['stato'] for c in commesse)
         commesse_completate = [c for c in commesse if c['stato'] == 'completata']
         
         # KPI Produzione
@@ -260,38 +261,21 @@ class ExportService:
         # Allarmi
         totale_allarmi = sum(a['occorrenze'] for a in dati['allarmi'])
         tempo_fermo_allarmi_ore = sum(a['durata_totale_ore'] for a in dati['allarmi'])
-        
-        # ====================================================================
-        # CALCOLO CORRETTO: Usa tempo effettivo macchina
-        # ====================================================================
-        
-        # Calcola tempo effettivo utilizzo macchina da eventi
-        tempo_effettivo = await self.calcola_tempo_effettivo_macchina(data_inizio, data_fine)
-        ore_macchina_utilizzate = tempo_effettivo['ore_macchina_accesa']
-        
-        # FALLBACK: Se non abbiamo eventi sufficienti, usa tempo produzione commesse
-        if ore_macchina_utilizzate == 0:
-            ore_macchina_utilizzate = tempo_produzione_ore
-        
-        # Disponibilità = tempo senza allarmi / tempo totale utilizzo
-        disponibilita_percentuale = round(
-            ((ore_macchina_utilizzate - tempo_fermo_allarmi_ore) / ore_macchina_utilizzate * 100), 2
-        ) if ore_macchina_utilizzate > 0 else 0
-        
-        # OEE = Disponibilità × Performance × Qualità
-        # Performance teorica (da parametrizzare o leggere da ricetta)
-        performance_teorica = 100  # pezzi/ora target
-        performance_percentuale = round(
-            (pezzi_ora_medio / performance_teorica * 100), 2
-        ) if performance_teorica > 0 else 0
-        
-        # Assumiamo qualità 100% (nessuno scarto tracciato)
-        qualita_percentuale = 100.0
-        
-        oee = round(
-            (disponibilita_percentuale / 100) * (performance_percentuale / 100) * (qualita_percentuale / 100) * 100, 2
-        )
-        
+
+        # Allarmi durante commesse vs fuori commesse
+        async with self.db.db.execute(
+            """SELECT
+                COALESCE(SUM(CASE WHEN lavorazione_id IS NOT NULL THEN durata_secondi ELSE 0 END), 0) as durante_commesse,
+                COALESCE(SUM(CASE WHEN lavorazione_id IS NULL THEN durata_secondi ELSE 0 END), 0) as fuori_commesse
+            FROM allarmi_storico
+            WHERE date(timestamp_inizio) BETWEEN date(?) AND date(?)
+            AND durata_secondi IS NOT NULL""",
+            (data_inizio, data_fine)
+        ) as cursor:
+            row = await cursor.fetchone()
+            ore_allarmi_durante_commesse = round(row[0] / 3600, 2) if row[0] else 0
+            ore_allarmi_fuori_commesse = round(row[1] / 3600, 2) if row[1] else 0
+
         # Calcola giorni calendario
         giorni_periodo = (datetime.fromisoformat(data_fine) - datetime.fromisoformat(data_inizio)).days + 1
         
@@ -315,27 +299,23 @@ class ExportService:
             'produzione': {
                 'pezzi_prodotti': totale_pezzi_prodotti,
                 'pezzi_richiesti': totale_pezzi_richiesti,
-                'tasso_completamento_pezzi_%': round(totale_pezzi_prodotti / totale_pezzi_richiesti * 100, 2) if totale_pezzi_richiesti > 0 else 0,
+                'tasso_completamento_pezzi_perc': round(totale_pezzi_prodotti / totale_pezzi_richiesti * 100, 2) if totale_pezzi_richiesti > 0 else 0,
                 'pezzi_ora_medio': pezzi_ora_medio,
                 'tempo_produzione_totale_ore': round(tempo_produzione_ore, 2)
             },
             'commesse': {
                 'totali': len(commesse),
                 'completate': len(commesse_completate),
-                'in_corso': len([c for c in commesse if c['stato'] == 'in_lavorazione']),
-                'in_attesa': len([c for c in commesse if c['stato'] == 'in_attesa']),
-                'tasso_completamento_%': tasso_completamento,
+                'in_corso': stato_counts['in_lavorazione'],
+                'in_attesa': stato_counts['in_attesa'],
+                'tasso_completamento_perc': tasso_completamento,
                 'tempo_medio_commessa_ore': tempo_medio_commessa
             },
-            'efficienza': {
-                'disponibilita_%': disponibilita_percentuale,
-                'performance_%': performance_percentuale,
-                'qualita_%': qualita_percentuale,
-                'oee_%': oee,
-                'ore_macchina_utilizzate': ore_macchina_utilizzate,
-                'ore_produzione_effettive': round(tempo_produzione_ore, 2),
-                'ore_fermo_allarmi': round(tempo_fermo_allarmi_ore, 2),
-                'nota': 'Calcolo basato su tempo effettivo utilizzo macchina, non periodo calendario'
+            'tempi': {
+                'ore_produzione_commesse': round(tempo_produzione_ore, 2),
+                'ore_fermo_durante_commesse': ore_allarmi_durante_commesse,
+                'ore_fermo_fuori_commesse': ore_allarmi_fuori_commesse,
+                'ore_nette': round(tempo_produzione_ore - ore_allarmi_durante_commesse, 2)
             },
             'allarmi': {
                 'totale_occorrenze': totale_allarmi,
@@ -466,18 +446,20 @@ class ExportService:
             row += 1
         
         row += 1
-        
-        # KPI Efficienza
-        ws_kpi[f'A{row}'] = "EFFICIENZA"
+
+        # KPI Tempi
+        ws_kpi[f'A{row}'] = "TEMPI PRODUZIONE"
         ws_kpi[f'A{row}'].font = header_font
         ws_kpi[f'A{row}'].fill = header_fill
         row += 1
-        
-        for key, value in kpi['efficienza'].items():
+
+        for key, value in kpi['tempi'].items():
             ws_kpi[f'A{row}'] = key.replace('_', ' ').title()
             ws_kpi[f'B{row}'] = value
             row += 1
-        
+
+        row += 1
+
         # Formatta colonne
         ws_kpi.column_dimensions['A'].width = 35
         ws_kpi.column_dimensions['B'].width = 20

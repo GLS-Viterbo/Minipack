@@ -3,6 +3,7 @@ import { useMachineData } from './hooks/useMachineData';
 import { Navbar } from './components/Navbar/Navbar';
 import { DashboardPage } from './pages/DashboardPage';
 import { ManagementPage } from './pages/ManagementPage';
+import { StatsPage } from './pages/StatsPage';
 import { LoadingSpinner, ErrorMessage } from './components/LoadingError/LoadingError';
 import { CreaCommessa } from './components/CreaCommessa/CreaCommessa';
 import { GestioneCommesse } from './components/GestioneCommesse/GestioneCommesse';
@@ -36,19 +37,23 @@ function App() {
                   )
                 } 
               />
-              <Route 
-                path="/management" 
-                element={<ManagementPage />} 
+              <Route
+                path="/management"
+                element={<ManagementPage />}
               />
-              <Route 
-                path="/commesse" 
+              <Route
+                path="/statistiche"
+                element={<StatsPage />}
+              />
+              <Route
+                path="/commesse"
                 element={
                   <div className="commesse-page">
                     <h1>Gestione Commesse</h1>
                     <CreaCommessa onCommessaCreata={() => window.location.reload()} />
                     <GestioneCommesse />
                   </div>
-                } 
+                }
               />
               <Route 
                 path="/commesse/nuova" 

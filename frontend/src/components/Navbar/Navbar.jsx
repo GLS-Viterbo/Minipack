@@ -1,5 +1,6 @@
+
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Settings, RefreshCw, Package } from 'lucide-react';
+import { Home, Settings, RefreshCw, Package, BarChart3 } from 'lucide-react';
 import './Navbar.css';
 
 export function Navbar({ isPolling, onTogglePolling, onRefresh, lastUpdate }) {
@@ -20,27 +21,34 @@ export function Navbar({ isPolling, onTogglePolling, onRefresh, lastUpdate }) {
           </div>
           
           <nav className="navbar">
-            <Link 
-              to="/" 
+            <Link
+              to="/"
               className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}
             >
               <Home size={20} />
               <span>Dashboard</span>
             </Link>
-            <Link 
-              to="/management" 
+            <Link
+              to="/management"
               className={`nav-link ${location.pathname === '/management' ? 'active' : ''}`}
             >
               <Settings size={20} />
               <span>Gestione</span>
             </Link>
-            <Link 
+            <Link
               to="/commesse"
               className={`nav-link ${location.pathname === '/commesse' ? 'active' : ''}`}
             >
-            <Package size={18} />
-            Commesse
-          </Link>
+              <Package size={18} />
+              Commesse
+            </Link>
+            <Link
+              to="/statistiche"
+              className={`nav-link ${location.pathname === '/statistiche' ? 'active' : ''}`}
+            >
+              <BarChart3 size={18} />
+              Statistiche
+            </Link>
           </nav>
           
           {location.pathname === '/' && (
