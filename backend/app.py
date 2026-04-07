@@ -112,6 +112,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Riscrive /api/... → /... per compatibilità con il frontend buildato
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class StripApiPrefixMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.scope["path"].startswith("/api/"):
+            request.scope["path"] = request.scope["path"][4:]
+        return await call_next(request)
+
+app.add_middleware(StripApiPrefixMiddleware)
+
 
 # ============================================================================
 # MODELLI PYDANTIC
