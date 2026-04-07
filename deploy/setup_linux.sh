@@ -55,7 +55,7 @@ cp -r "$REPO_DIR/frontend/dist" "$INSTALL_DIR/frontend_dist"
 echo "[5/6] Installo dipendenze Python..."
 python3 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip -q
-"$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" -q
+"$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements_server.txt" -q
 
 # Permessi
 chown -R "$APP_USER:$APP_USER" "$INSTALL_DIR"
