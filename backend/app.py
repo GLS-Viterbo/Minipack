@@ -5,12 +5,16 @@ Versione 3.0 - Integrazione completa sistema commesse
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import asyncio
 from contextlib import asynccontextmanager
 import json
+import os
+from pathlib import Path
 from fastapi.responses import StreamingResponse, Response
 from export_service import ExportService
 
@@ -1094,15 +1098,32 @@ async def get_dati_completi_produzione(
         raise HTTPException(status_code=500, detail=f"Errore recupero dati: {str(e)}")
 
 # ============================================================================
+# SERVING FRONTEND STATICO (produzione)
+# ============================================================================
+
+FRONTEND_DIST = Path(__file__).parent / "frontend_dist"
+
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_frontend(full_path: str):
+        # Non intercettare le route API già definite sopra
+        file_path = FRONTEND_DIST / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(FRONTEND_DIST / "index.html")
+
+
+# ============================================================================
 # AVVIO APPLICAZIONE
 # ============================================================================
 
 if __name__ == "__main__":
-    import os
     import uvicorn
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
-        port=int(os.getenv("BACKEND_PORT", "8000")),
-        reload=True
+        port=int(os.getenv("BACKEND_PORT", "10001")),
+        reload=False
     )

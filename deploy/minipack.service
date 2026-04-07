@@ -1,0 +1,17 @@
+[Unit]
+Description=Minipack Torre - Dashboard produzione
+After=network.target
+
+[Service]
+Type=simple
+User=minipack
+WorkingDirectory=/opt/minipack
+Environment="BACKEND_PORT=10001"
+ExecStart=/opt/minipack/venv/bin/python app.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

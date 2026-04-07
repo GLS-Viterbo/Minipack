@@ -1,0 +1,18 @@
+# Avvia Minipack ogni mattina alle 06:30
+# Per modificare l'orario, cambia "30 6" con "MM HH" (minuti e ora)
+#
+# Aggiungilo con:  sudo crontab -e
+# --------------------------------------------------------------------------
+
+30 6 * * 1-5 /bin/systemctl start minipack
+
+# --------------------------------------------------------------------------
+# Spiegazione:
+#   30   = al minuto 30
+#   6    = alle ore 6 (06:30)
+#   *    = ogni giorno del mese
+#   *    = ogni mese
+#   1-5  = solo lunedi-venerdi (togli "-5" se vuoi anche sabato/domenica: 1-6 o *)
+#
+# Per fermare l'app ogni sera alle 20:00:
+# 0 20 * * 1-5 /bin/systemctl stop minipack
