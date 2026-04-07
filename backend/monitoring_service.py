@@ -48,6 +48,7 @@ class MonitoringService:
 
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._machine_online: bool = False
 
         # ID lavorazione corrente (da impostare quando si avvia una produzione)
         self.current_lavorazione_id: Optional[int] = None
@@ -100,15 +101,15 @@ class MonitoringService:
         """Loop principale di monitoraggio"""
         consecutive_errors = 0
         max_consecutive_errors = 5
-        
+
         while self._running:
             try:
                 # Connetti al server OPC UA
                 await self.opc_client.connect()
-                
+
                 # Recupera tutti i dati dalla macchina
                 machine_data = await self._get_machine_data()
-                
+
                 # Aggiorna il database con monitoraggio automatico
                 await self.db_repo.process_machine_state(
                     machine_data,
@@ -124,33 +125,40 @@ class MonitoringService:
 
                 # Disconnetti
                 await self.opc_client.disconnect()
-                
-                # Reset contatore errori
+
+                # Logga solo il ripristino della connessione
+                if not self._machine_online:
+                    print("✅ Macchina online — polling ripreso")
+                    self._machine_online = True
+
                 consecutive_errors = 0
-                
+
                 # Attendi prima del prossimo ciclo
                 await asyncio.sleep(self.polling_interval)
-                
+
             except asyncio.CancelledError:
                 break
-                
+
             except Exception as e:
                 consecutive_errors += 1
-                print(f"❌ Errore nel ciclo di monitoraggio: {e}")
-                
-                # Se troppi errori consecutivi, aumenta l'intervallo
-                if consecutive_errors >= max_consecutive_errors:
-                    print(f"⚠️  {consecutive_errors} errori consecutivi - Intervallo aumentato")
-                    await asyncio.sleep(self.polling_interval * 3)
-                else:
-                    await asyncio.sleep(self.polling_interval)
-                
+
+                # Logga solo al primo errore (transizione online → offline)
+                if self._machine_online:
+                    print(f"⚠️  Macchina offline — polling in attesa ({e})")
+                    self._machine_online = False
+
                 # Assicurati che il client sia disconnesso
                 if self.opc_client:
                     try:
                         await self.opc_client.disconnect()
-                    except:
+                    except Exception:
                         pass
+
+                # Backoff dopo molti errori consecutivi
+                if consecutive_errors >= max_consecutive_errors:
+                    await asyncio.sleep(self.polling_interval * 6)
+                else:
+                    await asyncio.sleep(self.polling_interval)
 
     async def _get_machine_data(self) -> dict:
         """Recupera tutti i dati dalla macchina in formato dizionario"""

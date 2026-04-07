@@ -331,10 +331,35 @@ async def get_machine_data() -> MachineData:
         await client.disconnect()
         return data
         
-    except Exception as e:
-        await client.disconnect()
-        print(e)
-        raise HTTPException(status_code=500, detail=f"Errore connessione OPC UA: {str(e)}")
+    except Exception:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        return MachineData(
+            timestamp=datetime.now().isoformat(),
+            connected=False,
+            software_name="",
+            software_version="",
+            status=MachineStatus(
+                stop_manuale=False,
+                start_manuale=False,
+                stop_automatico=False,
+                start_automatico=False,
+                emergenza=False,
+                status_text="OFFLINE"
+            ),
+            alarms=[],
+            has_alarms=False,
+            recipe="",
+            total_pieces=0,
+            partial_pieces=0,
+            batch_counter=0,
+            lateral_bar_temp=0.0,
+            frontal_bar_temp=0.0,
+            triangle_position=0.0,
+            center_sealing_position=0.0,
+        )
 
 
 # ============================================================================
