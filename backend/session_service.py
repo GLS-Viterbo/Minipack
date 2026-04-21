@@ -93,6 +93,17 @@ class SessionService:
             self._prev_partial = current_partial
             self._prev_caricamento_ok = current_caricamento_ok
             self._first_poll = False
+
+            # Se al primo avvio la macchina è già in marcia con una ricetta,
+            # prepara una sessione pending per catturarla al primo pezzo prodotto.
+            # Questo copre il caso di riavvio del server a macchina già in produzione.
+            if current_recipe and machine_running:
+                self._pending = True
+                self._pending_recipe = current_recipe
+                self._pending_lotto = current_lotto
+                self._pending_commessa_id = commessa_attiva_id
+                self._baseline = current_partial
+
             return
 
         # ----------------------------------------------------------------
@@ -101,8 +112,8 @@ class SessionService:
         recipe_changed = current_recipe != self._prev_recipe and current_recipe != ""
         recipe_ok_edge = current_caricamento_ok and not self._prev_caricamento_ok
         counter_reset = (
-            (self._sessione_attiva_id is not None or self._pending) and
-            current_partial < self._prev_partial
+            current_partial < self._prev_partial and
+            current_recipe != ""
         )
 
         start_new = recipe_changed or recipe_ok_edge or counter_reset
@@ -128,6 +139,25 @@ class SessionService:
                 self._idle_polls = 0
             else:
                 self._pending = False
+
+        # ----------------------------------------------------------------
+        # Ripresa produzione dopo idle (stessa ricetta, nessun trigger esplicito)
+        # ----------------------------------------------------------------
+        # Dopo che l'idle timeout chiude una sessione, se la produzione riprende
+        # sulla stessa ricetta non scatta nessun trigger (recipe_changed = False,
+        # counter_reset richiede una sessione attiva). Lo rileva qui confrontando
+        # il contapezzi: se sta crescendo senza sessione aperta, ne apriamo una.
+        if (not start_new and
+                self._sessione_attiva_id is None and
+                not self._pending and
+                current_recipe and
+                current_partial > self._prev_partial):
+            self._pending = True
+            self._pending_recipe = current_recipe
+            self._pending_lotto = current_lotto
+            self._pending_commessa_id = commessa_attiva_id
+            self._baseline = self._prev_partial  # conta i pezzi da questo poll
+            self._idle_polls = 0
 
         # ----------------------------------------------------------------
         # Aggiornamento sessione attiva
